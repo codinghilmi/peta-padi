@@ -3,183 +3,204 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Komparasi Produktivitas Padi Antarwilayah Kepulauan Indonesia (2024)</title>
-  <meta name="description" content="Dashboard interaktif berbasis peta SVG analisis komparasi produktivitas padi antarwilayah kepulauan di Indonesia tahun 2024 berdasarkan data BPS RI." />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231B4D3E'/%3E%3Cpath d='M16 6c-3 4.2-4.5 8.1-4.5 11.7A4.5 4.5 0 0 0 16 22.2a4.5 4.5 0 0 0 4.5-4.5C20.5 14.1 19 10.2 16 6Z' fill='%23D8EAE6'/%3E%3Cpath d='M16 11.5v13.5' stroke='%231B4D3E' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <title>Seberapa Subur Sawah di Tiap Pulau Indonesia? — Peta Produktivitas Padi 2024</title>
+  <meta name="description" content="Eksplorasi interaktif produktivitas padi 38 provinsi di 6 kawasan kepulauan Indonesia tahun 2024 berdasarkan data BPS RI." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2358CC02'/%3E%3Cpath d='M16 6.5c-3.2 4.2-4.8 8-4.8 11.4a4.8 4.8 0 0 0 9.6 0C20.8 14.5 19.2 10.7 16 6.5Z' fill='%23FFFDF7'/%3E%3Cpath d='M16 12v13' stroke='%232E8500' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
-  <a class="skip-link" href="#main-workspace">Langsung ke peta &amp; analisis</a>
+  <a class="skip-link" href="#hero-stage">Langsung ke peta interaktif</a>
 
   <div class="app-shell">
-    <!-- A. Header Ringkas (Top Bar) -->
-    <header class="top-bar">
-      <div class="top-bar-title">
-        <span class="editorial-kicker">Analisis Statistika Dasar</span>
-        <h1>Komparasi Produktivitas Padi Antarwilayah Kepulauan</h1>
-        <p id="header-subtitle" class="subtitle">Memuat metadata data BPS RI...</p>
+    <!-- Header Kasual & Ramah Pembaca -->
+    <header class="hero-header">
+      <div class="hero-title-group">
+        <h1>Seberapa Subur Sawah di Tiap Pulau Indonesia?</h1>
+        <p id="header-subtitle" class="hero-subtitle">Memuat data produktivitas padi BPS RI...</p>
       </div>
-      <div class="top-bar-actions">
-        <button type="button" id="btn-methodology" class="btn-outline" aria-haspopup="dialog" aria-controls="methodology-dialog">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="10"></circle>
-            <path d="M12 16v-4"></path>
-            <path d="M12 8h.01"></path>
-          </svg>
-          <span>Metodologi &amp; Uji Statistik</span>
+
+      <div class="hero-pills" aria-label="Ringkasan temuan utama">
+        <!-- Pill 1: Rata-rata Provinsi + popover perbedaan BPS tertimbang -->
+        <div class="pill-popover-wrap">
+          <button type="button" id="pill-mean" class="stat-pill pill-mint" aria-expanded="false" aria-controls="mean-popover">
+            <span class="pill-emoji" aria-hidden="true">🌾</span>
+            <span id="pill-mean-text">Rata-rata Provinsi: —</span>
+            <span class="pill-info-dot" aria-hidden="true">?</span>
+          </button>
+          <div id="mean-popover" class="stat-popover" role="tooltip" hidden></div>
+        </div>
+
+        <!-- Pill 2: Pulau Tertinggi -->
+        <button type="button" id="pill-top" class="stat-pill pill-gold" title="Klik untuk zoom ke kawasan tertinggi">
+          <span class="pill-emoji" aria-hidden="true">🏆</span>
+          <span id="pill-top-text">Tertinggi: —</span>
+        </button>
+
+        <!-- Pill 3: Temuan Utama Effect Size -->
+        <button type="button" id="pill-finding" class="stat-pill pill-lavender" title="Lihat rincian uji ANOVA di Dapur Statistik">
+          <span class="pill-emoji" aria-hidden="true">⚡</span>
+          <span id="pill-finding-text">Temuan Utama: —</span>
         </button>
       </div>
     </header>
 
-    <!-- Error Notice Banner (if fetch fails, e.g. opened via file://) -->
+    <!-- Error notice (misal jika dibuka lewat file://) -->
     <div id="app-error-banner" class="error-banner" role="alert" hidden></div>
 
-    <!-- B. Pita Ringkasan Statistik Nasional (4 Kartu KPI Mini) -->
-    <section class="kpi-strip" aria-label="Ringkasan Statistik Nasional">
-      <article class="kpi-card">
-        <div class="kpi-label" id="kpi-mean-label">Rata-rata Provinsi</div>
-        <div class="kpi-value-row">
-          <span class="kpi-value mono" id="kpi-mean-val">—</span>
-          <span class="kpi-unit">ku/ha</span>
-        </div>
-        <div class="kpi-sub mono" id="kpi-mean-sub">Memuat...</div>
-      </article>
-
-      <article class="kpi-card">
-        <div class="kpi-label" id="kpi-anova-label">One-Way ANOVA (Utama)</div>
-        <div class="kpi-value-row">
-          <span class="kpi-value mono" id="kpi-anova-val">—</span>
-          <span class="badge badge-success" id="kpi-anova-badge">—</span>
-        </div>
-        <div class="kpi-sub" id="kpi-anova-sub">Memuat...</div>
-      </article>
-
-      <article class="kpi-card">
-        <div class="kpi-label">Effect Size (<span class="no-uppercase">&eta;&sup2;</span>)</div>
-        <div class="kpi-value-row">
-          <span class="kpi-value mono" id="kpi-eta-val">—</span>
-        </div>
-        <div class="kpi-sub" id="kpi-eta-sub">Memuat...</div>
-      </article>
-
-      <article class="kpi-card">
-        <div class="kpi-label" id="kpi-kw-label">Uji Robustness (Kruskal–Wallis)</div>
-        <div class="kpi-value-row">
-          <span class="kpi-value mono" id="kpi-kw-val">—</span>
-        </div>
-        <div class="kpi-sub mono" id="kpi-kw-sub">Memuat...</div>
-      </article>
-    </section>
-
-    <!-- C & D. Workspace Utama: Kanvas Peta + Panel Detail Samping -->
-    <main id="main-workspace" class="workspace-grid">
-      <!-- C. Kanvas Utama — Peta SVG Interaktif Indonesia -->
-      <section class="map-panel card" aria-label="Peta Interaktif Produktivitas Padi Indonesia">
-        <div class="map-toolbar">
-          <div class="segmented-control" role="tablist" aria-label="Mode Tampilan Peta">
+    <!-- Workspace Utama: Peta Hero ±70% + Panel Samping (Slide-in saat aktif) -->
+    <main id="workspace" class="workspace">
+      <section id="hero-stage" class="hero-stage card-3d" aria-label="Peta Interaktif Pulau Indonesia">
+        <!-- Floating Pill Bar di bagian atas kanvas peta -->
+        <div class="floating-bar">
+          <div class="mode-pills" role="tablist" aria-label="Mode eksplorasi peta">
             <button
               type="button"
-              id="btn-mode-kawasan"
-              class="seg-btn is-active"
+              id="btn-mode-explore"
+              class="pill-btn is-active"
               role="tab"
               aria-selected="true"
-              data-mode="kawasan"
             >
-              Mode Kawasan (Uji Beda)
+              <span aria-hidden="true">🗺️</span>
+              <span>Jelajahi Pulau</span>
             </button>
             <button
               type="button"
-              id="btn-mode-provinsi"
-              class="seg-btn"
+              id="btn-mode-compare"
+              class="pill-btn"
               role="tab"
               aria-selected="false"
-              data-mode="provinsi"
             >
-              Mode Provinsi (38 Prov)
+              <span aria-hidden="true">⚔️</span>
+              <span>Bandingkan 2 Pulau</span>
             </button>
           </div>
 
-          <div class="toolbar-right">
-            <span id="selection-status-pill" class="status-pill" hidden></span>
-            <button type="button" id="btn-reset-selection" class="btn-reset" hidden>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                <path d="M3 3v5h5"></path>
-              </svg>
-              <span>Reset Pilihan</span>
+          <div class="bar-actions">
+            <button type="button" id="btn-reset-map" class="pill-btn pill-btn-coral" hidden>
+              <span aria-hidden="true">🔄</span>
+              <span>Reset Peta</span>
+            </button>
+            <button
+              type="button"
+              id="btn-open-kitchen"
+              class="pill-btn pill-btn-sky"
+              aria-haspopup="dialog"
+              aria-controls="kitchen-dialog"
+            >
+              <span aria-hidden="true">🎓</span>
+              <span>Intip Rumus &amp; Uji Statistik</span>
             </button>
           </div>
         </div>
 
-        <div class="map-stage" id="map-stage">
+        <!-- Bar Petunjuk Kontekstual (khusus Mode Bandingkan / Mode Zoom) -->
+        <div id="stage-status-bar" class="stage-status-bar" hidden></div>
+
+        <!-- Kanvas Peta SVG -->
+        <div id="map-canvas-wrap" class="map-canvas-wrap">
           <div id="map-loading" class="map-loading" aria-live="polite">
             <span class="spinner" aria-hidden="true"></span>
-            <span>Memuat peta SVG Indonesia...</span>
+            <span>Menyiapkan peta kepulauan Indonesia...</span>
           </div>
-
-          <!-- Peta SVG diinjeksikan oleh mapLoader.js -->
           <div id="map-svg-host" class="map-svg-host"></div>
 
-          <!-- Legenda Peta (Pojok Kiri Bawah Kanvas) -->
-          <aside id="map-legend" class="map-legend" aria-label="Legenda Peta"></aside>
+          <!-- Legenda Ringkas Tier -->
+          <div id="map-legend" class="map-legend" aria-label="Legenda tingkat produktivitas"></div>
+        </div>
 
-          <!-- Petunjuk interaksi singkat (desktop) -->
-          <div class="map-hint" id="map-hint">
-            Arahkan kursor atau klik wilayah di peta • Tekan <kbd>Esc</kbd> untuk reset
-          </div>
+        <!-- Tombol Pil Cepat 6 Pulau di bawah peta -->
+        <div class="quick-islands-bar" aria-label="Pilih kawasan kepulauan secara cepat">
+          <span class="quick-label">Lompat ke pulau:</span>
+          <div id="quick-islands-list" class="quick-islands-list"></div>
         </div>
 
         <!-- Floating Tooltip -->
         <div id="map-tooltip" class="map-tooltip" role="status" aria-live="off" hidden></div>
       </section>
 
-      <!-- D. Panel Detail Samping -->
-      <aside id="detail-panel" class="detail-panel card" aria-label="Panel Detail Analisis Wilayah">
-        <!-- Diisi secara dinamis oleh app.js (State Default / State Kawasan Terpilih) -->
-      </aside>
+      <!-- Panel Samping Dinamis (Slide-in Insight Pulau atau Bandingkan 2 Pulau) -->
+      <aside id="side-panel" class="side-panel card-3d" aria-label="Panel Insight dan Perbandingan" hidden></aside>
     </main>
 
-    <!-- F. Footer Akademik & Kredit -->
+    <!-- Footer Tipis & Rapi -->
     <footer class="site-footer">
-      <div class="footer-item">
-        <strong>Sumber Data:</strong>
-        <span id="footer-source">Badan Pusat Statistik (BPS) RI — <em>Luas Panen, Produksi, dan Produktivitas Padi Menurut Provinsi, 2024</em>.</span>
-      </div>
-      <div class="footer-meta">
+      <div class="footer-left">
         <span>
-          <!-- Sumber SVG terdeteksi di maps/.git/config (rezkyyayang/maps); sesuaikan nama/tautan jika berbeda -->
-          <strong>Kredit Peta SVG:</strong> Peta SVG Indonesia oleh
-          <a href="https://github.com/rezkyyayang/maps" target="_blank" rel="noopener noreferrer">rezkyyayang/maps</a>
+          <strong>Sumber Data:</strong>
+          <span id="footer-source">BPS RI (2024)</span>
         </span>
         <span class="footer-sep" aria-hidden="true">•</span>
         <span>
-          <strong>Penyusun:</strong> Muhammad Hilmi Mu'afa (NRP 3326600014) — Proyek Akhir Statistika Dasar
+          <strong>Peta SVG:</strong>
+          <a href="https://github.com/rezkyyayang/maps" target="_blank" rel="noopener noreferrer">rezkyyayang/maps</a>
         </span>
+        <span class="footer-sep" aria-hidden="true">•</span>
+        <span>Muhammad Hilmi Mu'afa (NRP 3326600014)</span>
       </div>
+      <button type="button" id="btn-project-note" class="btn-note-link">
+        <span aria-hidden="true">📝</span>
+        <span>Catatan Proyek</span>
+      </button>
     </footer>
   </div>
 
-  <!-- E. Modal "Metodologi & Uji Statistik" -->
-  <dialog id="methodology-dialog" class="modal-dialog" aria-labelledby="modal-title">
-    <div class="modal-card">
+  <!-- Modal "Dapur Statistik (4 Langkah)" -->
+  <dialog id="kitchen-dialog" class="modal-dialog" aria-labelledby="kitchen-title">
+    <div class="modal-card card-3d">
       <div class="modal-header">
         <div>
-          <span class="editorial-kicker">Ringkasan Metodologi</span>
-          <h2 id="modal-title">Alur &amp; Validasi Uji Statistik</h2>
+          <span class="modal-kicker">Mode Penjelasan Teknis</span>
+          <h2 id="kitchen-title">🎓 Dapur Statistik (Untuk Yang Penasaran &amp; Dosen)</h2>
         </div>
-        <button type="button" id="btn-close-modal" class="btn-icon" aria-label="Tutup dialog">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <button type="button" id="btn-close-kitchen" class="btn-close-circle" aria-label="Tutup Dapur Statistik">✕</button>
       </div>
-      <div id="methodology-body" class="modal-body"></div>
+
+      <!-- 4 Tab Stepper ala Duolingo -->
+      <nav id="kitchen-tabs" class="stepper-tabs" role="tablist" aria-label="Langkah uji statistik">
+        <button type="button" class="step-tab is-active" role="tab" aria-selected="true" data-step="0">
+          <span class="step-num">1</span>
+          <span class="step-label">Cek Data</span>
+        </button>
+        <button type="button" class="step-tab" role="tab" aria-selected="false" data-step="1">
+          <span class="step-num">2</span>
+          <span class="step-label">Uji Syarat</span>
+        </button>
+        <button type="button" class="step-tab" role="tab" aria-selected="false" data-step="2">
+          <span class="step-num">3</span>
+          <span class="step-label">ANOVA vs KW</span>
+        </button>
+        <button type="button" class="step-tab" role="tab" aria-selected="false" data-step="3">
+          <span class="step-num">4</span>
+          <span class="step-label">Tukey HSD</span>
+        </button>
+      </nav>
+
+      <div id="kitchen-body" class="modal-body"></div>
+
       <div class="modal-footer">
-        <button type="button" id="btn-close-modal-footer" class="btn-primary">Tutup Penjelasan</button>
+        <button type="button" id="btn-step-prev" class="pill-btn">← Sebelumnya</button>
+        <div id="step-dots" class="step-dots" aria-hidden="true"></div>
+        <button type="button" id="btn-step-next" class="pill-btn pill-btn-green">Lanjut →</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Catatan Proyek -->
+  <dialog id="note-dialog" class="modal-dialog modal-dialog-sm" aria-labelledby="note-title">
+    <div class="modal-card card-3d">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">Info Akademik</span>
+          <h2 id="note-title">📝 Catatan Proyek &amp; Batas Wilayah</h2>
+        </div>
+        <button type="button" id="btn-close-note" class="btn-close-circle" aria-label="Tutup Catatan Proyek">✕</button>
+      </div>
+      <div id="note-body" class="modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" id="btn-close-note-footer" class="pill-btn pill-btn-green">Mengerti!</button>
       </div>
     </div>
   </dialog>

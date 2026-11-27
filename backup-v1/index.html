@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Komparasi Produktivitas Padi Antarwilayah Kepulauan Indonesia (2024)</title>
+  <meta name="description" content="Dashboard interaktif berbasis peta SVG analisis komparasi produktivitas padi antarwilayah kepulauan di Indonesia tahun 2024 berdasarkan data BPS RI." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231B4D3E'/%3E%3Cpath d='M16 6c-3 4.2-4.5 8.1-4.5 11.7A4.5 4.5 0 0 0 16 22.2a4.5 4.5 0 0 0 4.5-4.5C20.5 14.1 19 10.2 16 6Z' fill='%23D8EAE6'/%3E%3Cpath d='M16 11.5v13.5' stroke='%231B4D3E' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main-workspace">Langsung ke peta &amp; analisis</a>
+
+  <div class="app-shell">
+    <!-- A. Header Ringkas (Top Bar) -->
+    <header class="top-bar">
+      <div class="top-bar-title">
+        <span class="editorial-kicker">Analisis Statistika Dasar</span>
+        <h1>Komparasi Produktivitas Padi Antarwilayah Kepulauan</h1>
+        <p id="header-subtitle" class="subtitle">Memuat metadata data BPS RI...</p>
+      </div>
+      <div class="top-bar-actions">
+        <button type="button" id="btn-methodology" class="btn-outline" aria-haspopup="dialog" aria-controls="methodology-dialog">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+          </svg>
+          <span>Metodologi &amp; Uji Statistik</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Error Notice Banner (if fetch fails, e.g. opened via file://) -->
+    <div id="app-error-banner" class="error-banner" role="alert" hidden></div>
+
+    <!-- B. Pita Ringkasan Statistik Nasional (4 Kartu KPI Mini) -->
+    <section class="kpi-strip" aria-label="Ringkasan Statistik Nasional">
+      <article class="kpi-card">
+        <div class="kpi-label" id="kpi-mean-label">Rata-rata Provinsi</div>
+        <div class="kpi-value-row">
+          <span class="kpi-value mono" id="kpi-mean-val">—</span>
+          <span class="kpi-unit">ku/ha</span>
+        </div>
+        <div class="kpi-sub mono" id="kpi-mean-sub">Memuat...</div>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-label" id="kpi-anova-label">One-Way ANOVA (Utama)</div>
+        <div class="kpi-value-row">
+          <span class="kpi-value mono" id="kpi-anova-val">—</span>
+          <span class="badge badge-success" id="kpi-anova-badge">—</span>
+        </div>
+        <div class="kpi-sub" id="kpi-anova-sub">Memuat...</div>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-label">Effect Size (<span class="no-uppercase">&eta;&sup2;</span>)</div>
+        <div class="kpi-value-row">
+          <span class="kpi-value mono" id="kpi-eta-val">—</span>
+        </div>
+        <div class="kpi-sub" id="kpi-eta-sub">Memuat...</div>
+      </article>
+
+      <article class="kpi-card">
+        <div class="kpi-label" id="kpi-kw-label">Uji Robustness (Kruskal–Wallis)</div>
+        <div class="kpi-value-row">
+          <span class="kpi-value mono" id="kpi-kw-val">—</span>
+        </div>
+        <div class="kpi-sub mono" id="kpi-kw-sub">Memuat...</div>
+      </article>
+    </section>
+
+    <!-- C & D. Workspace Utama: Kanvas Peta + Panel Detail Samping -->
+    <main id="main-workspace" class="workspace-grid">
+      <!-- C. Kanvas Utama — Peta SVG Interaktif Indonesia -->
+      <section class="map-panel card" aria-label="Peta Interaktif Produktivitas Padi Indonesia">
+        <div class="map-toolbar">
+          <div class="segmented-control" role="tablist" aria-label="Mode Tampilan Peta">
+            <button
+              type="button"
+              id="btn-mode-kawasan"
+              class="seg-btn is-active"
+              role="tab"
+              aria-selected="true"
+              data-mode="kawasan"
+            >
+              Mode Kawasan (Uji Beda)
+            </button>
+            <button
+              type="button"
+              id="btn-mode-provinsi"
+              class="seg-btn"
+              role="tab"
+              aria-selected="false"
+              data-mode="provinsi"
+            >
+              Mode Provinsi (38 Prov)
+            </button>
+          </div>
+
+          <div class="toolbar-right">
+            <span id="selection-status-pill" class="status-pill" hidden></span>
+            <button type="button" id="btn-reset-selection" class="btn-reset" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+              </svg>
+              <span>Reset Pilihan</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="map-stage" id="map-stage">
+          <div id="map-loading" class="map-loading" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Memuat peta SVG Indonesia...</span>
+          </div>
+
+          <!-- Peta SVG diinjeksikan oleh mapLoader.js -->
+          <div id="map-svg-host" class="map-svg-host"></div>
+
+          <!-- Legenda Peta (Pojok Kiri Bawah Kanvas) -->
+          <aside id="map-legend" class="map-legend" aria-label="Legenda Peta"></aside>
+
+          <!-- Petunjuk interaksi singkat (desktop) -->
+          <div class="map-hint" id="map-hint">
+            Arahkan kursor atau klik wilayah di peta • Tekan <kbd>Esc</kbd> untuk reset
+          </div>
+        </div>
+
+        <!-- Floating Tooltip -->
+        <div id="map-tooltip" class="map-tooltip" role="status" aria-live="off" hidden></div>
+      </section>
+
+      <!-- D. Panel Detail Samping -->
+      <aside id="detail-panel" class="detail-panel card" aria-label="Panel Detail Analisis Wilayah">
+        <!-- Diisi secara dinamis oleh app.js (State Default / State Kawasan Terpilih) -->
+      </aside>
+    </main>
+
+    <!-- F. Footer Akademik & Kredit -->
+    <footer class="site-footer">
+      <div class="footer-item">
+        <strong>Sumber Data:</strong>
+        <span id="footer-source">Badan Pusat Statistik (BPS) RI — <em>Luas Panen, Produksi, dan Produktivitas Padi Menurut Provinsi, 2024</em>.</span>
+      </div>
+      <div class="footer-meta">
+        <span>
+          <!-- Sumber SVG terdeteksi di maps/.git/config (rezkyyayang/maps); sesuaikan nama/tautan jika berbeda -->
+          <strong>Kredit Peta SVG:</strong> Peta SVG Indonesia oleh
+          <a href="https://github.com/rezkyyayang/maps" target="_blank" rel="noopener noreferrer">rezkyyayang/maps</a>
+        </span>
+        <span class="footer-sep" aria-hidden="true">•</span>
+        <span>
+          <strong>Penyusun:</strong> Muhammad Hilmi Mu'afa (NRP 3326600014) — Proyek Akhir Statistika Dasar
+        </span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- E. Modal "Metodologi & Uji Statistik" -->
+  <dialog id="methodology-dialog" class="modal-dialog" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <span class="editorial-kicker">Ringkasan Metodologi</span>
+          <h2 id="modal-title">Alur &amp; Validasi Uji Statistik</h2>
+        </div>
+        <button type="button" id="btn-close-modal" class="btn-icon" aria-label="Tutup dialog">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div id="methodology-body" class="modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" id="btn-close-modal-footer" class="btn-primary">Tutup Penjelasan</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

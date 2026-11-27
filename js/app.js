@@ -1,5 +1,5 @@
 import {
-  CHOROPLETH_SCALE,
+  buildRegionStory,
   computeDataAudit,
   formatAreaOrProd,
   formatNumber,
@@ -7,485 +7,366 @@ import {
   formatProvinceName,
   formatPValue,
   formatSignedDelta,
-  getCvInterpretation,
-  getProvinceColor,
-  getRegionColor,
+  getCvFriendlyBadge,
+  getInternalProvinceColor,
+  getRankMedal,
+  getRegionFillColor,
+  getTierForRank,
+  TIER_CONFIG,
 } from './formatters.js';
 import { fetchMapHtml, mountIndonesiaMap } from './mapLoader.js';
 
-const MAX_PROGRESS_SCALE = 65;
+const MAX_BAR_SCALE = 65;
 
 const state = {
   data: null,
   audit: null,
-  provinceLookup: new Map(),
   kawasanRanked: [],
+  provinceLookup: new Map(),
   mapContext: null,
 
-  mode: 'kawasan', // 'kawasan' | 'provinsi'
-  selectedKawasan: null,
-  focusedOpponent: null, // Jika klik pasangan signifikan spesifik (A vs B)
-  selectedProvince: null, // Sorot baris provinsi saat klik di Mode Provinsi
+  mode: 'explore', // 'explore' | 'compare'
+  zoomedKawasan: null,
   hoveredKawasan: null,
   hoveredSvgId: null,
+  syncedProvince: null, // Provinsi tersorot saat hover bar di panel / klik di peta zoom
+
+  compareA: null,
+  compareB: null,
+  compareSelectTarget: 'A',
+
+  kitchenStep: 0,
   isTouchPointer: false,
+  countUpAnimId: null,
 };
 
 const els = {
   headerSubtitle: document.getElementById('header-subtitle'),
+  pillMean: document.getElementById('pill-mean'),
+  pillMeanText: document.getElementById('pill-mean-text'),
+  meanPopover: document.getElementById('mean-popover'),
+  pillTop: document.getElementById('pill-top'),
+  pillTopText: document.getElementById('pill-top-text'),
+  pillFinding: document.getElementById('pill-finding'),
+  pillFindingText: document.getElementById('pill-finding-text'),
+
   errorBanner: document.getElementById('app-error-banner'),
+  workspace: document.getElementById('workspace'),
+  heroStage: document.getElementById('hero-stage'),
 
-  kpiMeanLabel: document.getElementById('kpi-mean-label'),
-  kpiMeanVal: document.getElementById('kpi-mean-val'),
-  kpiMeanSub: document.getElementById('kpi-mean-sub'),
-  kpiAnovaLabel: document.getElementById('kpi-anova-label'),
-  kpiAnovaVal: document.getElementById('kpi-anova-val'),
-  kpiAnovaBadge: document.getElementById('kpi-anova-badge'),
-  kpiAnovaSub: document.getElementById('kpi-anova-sub'),
-  kpiEtaVal: document.getElementById('kpi-eta-val'),
-  kpiEtaSub: document.getElementById('kpi-eta-sub'),
-  kpiKwLabel: document.getElementById('kpi-kw-label'),
-  kpiKwVal: document.getElementById('kpi-kw-val'),
-  kpiKwSub: document.getElementById('kpi-kw-sub'),
+  btnExplore: document.getElementById('btn-mode-explore'),
+  btnCompare: document.getElementById('btn-mode-compare'),
+  btnResetMap: document.getElementById('btn-reset-map'),
+  btnOpenKitchen: document.getElementById('btn-open-kitchen'),
+  stageStatusBar: document.getElementById('stage-status-bar'),
 
-  btnModeKawasan: document.getElementById('btn-mode-kawasan'),
-  btnModeProvinsi: document.getElementById('btn-mode-provinsi'),
-  statusPill: document.getElementById('selection-status-pill'),
-  btnReset: document.getElementById('btn-reset-selection'),
-
-  mapStage: document.getElementById('map-stage'),
+  mapWrap: document.getElementById('map-canvas-wrap'),
   mapLoading: document.getElementById('map-loading'),
   mapHost: document.getElementById('map-svg-host'),
   mapLegend: document.getElementById('map-legend'),
+  quickIslandsList: document.getElementById('quick-islands-list'),
   mapTooltip: document.getElementById('map-tooltip'),
+  sidePanel: document.getElementById('side-panel'),
 
-  detailPanel: document.getElementById('detail-panel'),
   footerSource: document.getElementById('footer-source'),
+  btnProjectNote: document.getElementById('btn-project-note'),
 
-  btnMethodology: document.getElementById('btn-methodology'),
-  methodologyDialog: document.getElementById('methodology-dialog'),
-  methodologyBody: document.getElementById('methodology-body'),
-  btnCloseModal: document.getElementById('btn-close-modal'),
-  btnCloseModalFooter: document.getElementById('btn-close-modal-footer'),
+  kitchenDialog: document.getElementById('kitchen-dialog'),
+  kitchenTabs: document.getElementById('kitchen-tabs'),
+  kitchenBody: document.getElementById('kitchen-body'),
+  btnCloseKitchen: document.getElementById('btn-close-kitchen'),
+  btnStepPrev: document.getElementById('btn-step-prev'),
+  btnStepNext: document.getElementById('btn-step-next'),
+  stepDots: document.getElementById('step-dots'),
+
+  noteDialog: document.getElementById('note-dialog'),
+  noteBody: document.getElementById('note-body'),
+  btnCloseNote: document.getElementById('btn-close-note'),
+  btnCloseNoteFooter: document.getElementById('btn-close-note-footer'),
 };
 
-function showError(message) {
+function showError(msg) {
   els.errorBanner.hidden = false;
   els.errorBanner.innerHTML = `
-    <strong>Gagal memuat data dashboard.</strong> ${message}
-    <span class="error-hint">Pastikan halaman dijalankan melalui server HTTP lokal (misal: <code>python -m http.server 8000</code>), bukan langsung membuka file <code>file://</code>.</span>
+    ⚠️ <strong>Gagal memuat dashboard:</strong> ${msg}
+    <span>Jalankan lewat server lokal (misal <code>python -m http.server 8000</code>), bukan membuka file langsung via <code>file://</code>.</span>
   `;
 }
 
-function renderHeaderAndKpis() {
+function renderHeaderAndQuickBar() {
   const { meta, nasional } = state.data;
-  const nKawasan = state.kawasanRanked.length;
+  const topRegion = state.kawasanRanked[0];
 
-  els.headerSubtitle.textContent = `Data ${meta.sumber} ${meta.tahun} • ${nasional.n_provinsi} Provinsi • ${nKawasan} Kawasan Kepulauan`;
-  els.footerSource.innerHTML = `${meta.sumber} — <em>Luas Panen, Produksi, dan Produktivitas Padi Menurut Provinsi, ${meta.tahun}</em> (${meta.satuan}).`;
+  els.headerSubtitle.textContent = `Eksplorasi Produktivitas Padi ${nasional.n_provinsi} Provinsi (Data ${meta.sumber} ${meta.tahun})`;
+  els.footerSource.textContent = `${meta.sumber} (${meta.tahun}) — ${meta.satuan}`;
 
-  // KPI 1: Rata-rata 38 Provinsi
-  els.kpiMeanLabel.textContent = `Rata-rata ${nasional.n_provinsi} Provinsi`;
-  els.kpiMeanVal.textContent = formatNumber(nasional.mean_provinsi, 2);
-  els.kpiMeanSub.textContent = `Median ${formatNumber(nasional.median_provinsi, 2)} | Nasional BPS ${formatNumber(nasional.produktivitas_tertimbang_bps, 2)}`;
+  // 3 Pill Badges
+  els.pillMeanText.textContent = `Rata-rata Provinsi: ${formatNumber(nasional.mean_provinsi, 2)} ku/ha`;
+  els.meanPopover.innerHTML = `
+    <strong>Kenapa beda dengan angka nasional BPS (${formatNumber(nasional.produktivitas_tertimbang_bps, 2)} ku/ha)?</strong><br />
+    Angka <strong>${formatNumber(nasional.mean_provinsi, 2)} ku/ha</strong> memberi bobot setara bagi seluruh ${nasional.n_provinsi} provinsi (cocok untuk uji beda antarwilayah).
+    Angka BPS <strong>${formatNumber(nasional.produktivitas_tertimbang_bps, 2)} ku/ha</strong> adalah rata-rata tertimbang luas panen, sehingga tertarik naik oleh sentra sawah luas di Jawa.
+  `;
 
-  // KPI 2: One-Way ANOVA
-  els.kpiAnovaLabel.textContent = 'One-Way ANOVA (Utama)';
-  els.kpiAnovaVal.textContent = `F = ${formatNumber(nasional.anova.F, 2)}`;
-  const isAnovaSig = nasional.anova.p_value < 0.05;
-  els.kpiAnovaBadge.textContent = isAnovaSig ? 'Signifikan α = 0,05' : 'Tidak Signifikan';
-  els.kpiAnovaBadge.className = `badge ${isAnovaSig ? 'badge-success' : 'badge-neutral'}`;
-  els.kpiAnovaSub.innerHTML = `<span class="mono">p = ${formatPValue(nasional.anova.p_value)}</span> • Beda antarwilayah nyata`;
+  els.pillTopText.textContent = `Tertinggi: ${topRegion.name} (${formatNumber(topRegion.statistik.mean, 2)} ku/ha)`;
+  els.pillFindingText.textContent = `Temuan Utama: Lokasi Pulau Berpengaruh Besar (${formatPercent(nasional.anova.eta_sq, 1)})`;
 
-  // KPI 3: Effect Size Eta Squared
-  els.kpiEtaVal.textContent = formatPercent(nasional.anova.eta_sq, 1);
-  const etaLevel = nasional.anova.eta_sq >= 0.14 ? 'Efek Besar' : nasional.anova.eta_sq >= 0.06 ? 'Efek Sedang' : 'Efek Kecil';
-  els.kpiEtaSub.textContent = `${etaLevel} — faktor wilayah kepulauan`;
+  // Legenda Ringkas 3 Tier
+  els.mapLegend.innerHTML = `
+    <span class="legend-item"><span class="legend-dot t1"></span>Tier 1: Tinggi</span>
+    <span class="legend-item"><span class="legend-dot t2"></span>Tier 2: Menengah</span>
+    <span class="legend-item"><span class="legend-dot t3"></span>Tier 3: Rendah</span>
+  `;
 
-  // KPI 4: Kruskal-Wallis + Levene
-  els.kpiKwVal.textContent = `H = ${formatNumber(nasional.kruskal_wallis.H, 2)}`;
-  els.kpiKwSub.textContent = `p = ${formatNumber(nasional.kruskal_wallis.p_value, 4)} | ε² = ${formatPercent(nasional.kruskal_wallis.epsilon_sq, 1)} | Levene p = ${formatNumber(nasional.levene.p_value, 3)}`;
-}
+  // Tombol pil cepat 6 pulau
+  els.quickIslandsList.innerHTML = state.kawasanRanked
+    .map((r) => {
+      const color = getRegionFillColor(r.peringkat);
+      return `
+        <button type="button" class="island-chip" data-quick-kawasan="${r.name}">
+          <span class="chip-dot" style="background:${color}" aria-hidden="true"></span>
+          <span>#${r.peringkat} ${r.name}</span>
+        </button>
+      `;
+    })
+    .join('');
 
-function renderMethodologyModal() {
-  const { nasional } = state.data;
-  const audit = state.audit;
-
-  els.methodologyBody.innerHTML = `
-    <ol class="method-steps">
-      <li>
-        <div class="method-step-head">
-          <strong>1. Audit &amp; Kelengkapan Data</strong>
-          <span class="badge badge-success">Valid (${audit.nProvinsi} Provinsi)</span>
-        </div>
-        <p>
-          Sebanyak <span class="mono">${audit.nProvinsi}</span> provinsi lengkap dari BPS RI ${state.data.meta.tahun}
-          (<span class="mono">${audit.missingCount}</span> missing,
-          <span class="mono">${audit.extremeOutlierCount}</span> outlier ekstrem IQR,
-          skewness = <span class="mono">${formatNumber(audit.skewness, 2)}</span>).
-          Distribusi nasional mendekati simetris sehingga layak dianalisis dengan pendekatan parametrik.
-        </p>
-      </li>
-      <li>
-        <div class="method-step-head">
-          <strong>2. Uji Asumsi Normalitas &amp; Homogenitas</strong>
-          <span class="badge badge-success">Asumsi Terpenuhi</span>
-        </div>
-        <p>
-          Seluruh <span class="mono">${state.kawasanRanked.length}</span> kawasan lolos uji normalitas
-          <strong>Shapiro–Wilk</strong> (<span class="mono">p &gt; 0,05</span>; rentang
-          <span class="mono">p = ${formatPValue(audit.shapiroMinP)}</span> hingga
-          <span class="mono">${formatPValue(audit.shapiroMaxP)}</span>)
-          dan <strong>Levene's Test</strong> (<span class="mono">F = ${formatNumber(nasional.levene.F, 4)}</span>,
-          <span class="mono">p = ${formatPValue(nasional.levene.p_value)}</span>),
-          sehingga varians antarwilayah terbukti homogen.
-        </p>
-      </li>
-      <li>
-        <div class="method-step-head">
-          <strong>3. Pemilihan Uji Utama &amp; Uji Robustness</strong>
-          <span class="badge badge-neutral">Parametrik + Non-parametrik</span>
-        </div>
-        <p>
-          <strong>${nasional.metode_utama.replace(' (Tukey HSD)', '')}</strong>
-          (<span class="mono">F = ${formatNumber(nasional.anova.F, 2)}</span>,
-          <span class="mono">p = ${formatPValue(nasional.anova.p_value)}</span>,
-          <span class="mono">&eta;&sup2; = ${formatNumber(nasional.anova.eta_sq, 3)}</span>)
-          dipilih sebagai uji utama karena seluruh asumsi terpenuhi, didampingi
-          <strong>Kruskal–Wallis</strong>
-          (<span class="mono">H = ${formatNumber(nasional.kruskal_wallis.H, 2)}</span>,
-          <span class="mono">p = ${formatPValue(nasional.kruskal_wallis.p_value)}</span>,
-          <span class="mono">&epsilon;&sup2; = ${formatNumber(nasional.kruskal_wallis.epsilon_sq, 3)}</span>)
-          sebagai uji sensitivitas karena ukuran kelompok tidak seimbang
-          (<span class="mono">n = ${audit.minGroupN}</span> hingga <span class="mono">${audit.maxGroupN}</span>).
-        </p>
-      </li>
-      <li>
-        <div class="method-step-head">
-          <strong>4. Uji Lanjut Post-Hoc (Tukey HSD)</strong>
-          <span class="badge badge-coral">${audit.tukeyPairs.length} dari ${audit.totalPairs} Pasangan</span>
-        </div>
-        <p>
-          Uji <strong>Tukey HSD</strong> (<span class="mono">&alpha; = 0,05</span>) mengidentifikasi
-          <span class="mono">${audit.tukeyPairs.length}</span> dari <span class="mono">${audit.totalPairs}</span>
-          pasangan kawasan dengan perbedaan produktivitas rata-rata yang signifikan secara statistik:
-          ${audit.tukeyPairs
-            .map((p) => `<strong>${p.higher} vs ${p.lower}</strong> (<span class="mono">+${formatNumber(p.selisih, 2)} ku/ha, p = ${formatPValue(p.p_adj)}</span>)`)
-            .join('; ')}.
-        </p>
-      </li>
-    </ol>
+  // Catatan Proyek modal body
+  els.noteBody.innerHTML = `
+    <p class="kitchen-lead">
+      Dashboard ini disusun sebagai proyek akhir mata kuliah <strong>Statistika Dasar</strong> oleh
+      <strong>Muhammad Hilmi Mu'afa (NRP 3326600014)</strong> menggunakan data resmi
+      <strong>${meta.sumber} tahun ${meta.tahun}</strong> (${nasional.n_provinsi} provinsi dalam ${state.kawasanRanked.length} kawasan kepulauan).
+    </p>
+    <div class="dob-note">
+      <strong>Catatan Peta 34 vs 38 Provinsi:</strong> Geometri dasar peta SVG mengikuti batas 34 provinsi
+      (Papua &amp; Papua Barat pra-pemekaran), sedangkan seluruh perhitungan statistik dan daftar rincian provinsi
+      di kawasan <strong>Maluku &amp; Papua</strong> tetap menampilkan lengkap <strong>8 provinsi BPS ${meta.tahun}</strong>
+      (termasuk Papua Selatan, Papua Tengah, Papua Pegunungan, dan Papua Barat Daya).
+    </div>
   `;
 }
 
-function renderLegend() {
-  if (state.mode === 'kawasan') {
-    const lowMean = state.kawasanRanked[state.kawasanRanked.length - 1].statistik.mean;
-    const highMean = state.kawasanRanked[0].statistik.mean;
-    const swatches = [...CHOROPLETH_SCALE]
-      .map(
-        (stop) =>
-          `<span class="legend-swatch" style="background:${stop.color}" title="Peringkat #${stop.rank}"></span>`
-      )
-      .join('');
+function getTukeyPairInfo(kawasanA, kawasanB) {
+  if (!kawasanA || !kawasanB || kawasanA === kawasanB) return null;
+  const regA = state.data.kawasan[kawasanA];
+  const regB = state.data.kawasan[kawasanB];
+  if (!regA || !regB) return null;
 
-    els.mapLegend.innerHTML = `
-      <div class="legend-title">Rata-rata Produktivitas Kawasan (ku/ha)</div>
-      <div class="legend-scale">
-        <div class="legend-swatches">${swatches}</div>
-        <div class="legend-ticks mono">
-          <span>${formatNumber(lowMean, 1)}</span>
-          <span>${formatNumber(state.data.nasional.mean_provinsi, 1)} (Rerata)</span>
-          <span>${formatNumber(highMean, 1)}</span>
-        </div>
-      </div>
-      <div class="legend-tukey">
-        <span class="legend-coral-chip" aria-hidden="true"></span>
-        <span>Berbeda Signifikan (Tukey HSD, p &lt; 0,05)</span>
-      </div>
-    `;
-  } else {
-    const { minProd, maxProd } = state.audit;
-    els.mapLegend.innerHTML = `
-      <div class="legend-title">Produktivitas per Provinsi (ku/ha)</div>
-      <div class="legend-scale">
-        <div class="legend-gradient-bar"></div>
-        <div class="legend-ticks mono">
-          <span>${formatNumber(minProd, 1)}</span>
-          <span>${formatNumber(state.data.nasional.mean_provinsi, 1)}</span>
-          <span>${formatNumber(maxProd, 1)}</span>
-        </div>
-      </div>
-      <div class="legend-note">
-        Klik provinsi untuk melihat rincian kawasan; Papua &amp; Papua Barat memakai batas 34 prov.
-      </div>
-    `;
-  }
+  const match = (regA.beda_signifikan_tukey || []).find((d) => d.lawan === kawasanB);
+  const diffMean = Math.abs(regA.statistik.mean - regB.statistik.mean);
+  return {
+    significant: Boolean(match),
+    selisih: match ? Number(match.selisih_ku_ha) : diffMean,
+    pAdj: match ? Number(match.p_adj) : null,
+    higher: regA.statistik.mean >= regB.statistik.mean ? kawasanA : kawasanB,
+    lower: regA.statistik.mean >= regB.statistik.mean ? kawasanB : kawasanA,
+  };
 }
 
-function getActiveOpponentsSet() {
-  if (!state.selectedKawasan) return new Set();
-  if (state.focusedOpponent) {
-    return new Set([state.focusedOpponent]);
+function updateUIState() {
+  const isExplore = state.mode === 'explore';
+  const hasZoom = isExplore && Boolean(state.zoomedKawasan);
+  const hasPanelOpen = hasZoom || !isExplore;
+
+  els.btnExplore.classList.toggle('is-active', isExplore);
+  els.btnExplore.setAttribute('aria-selected', String(isExplore));
+  els.btnCompare.classList.toggle('is-active', !isExplore);
+  els.btnCompare.setAttribute('aria-selected', String(!isExplore));
+
+  const showReset = hasZoom || (!isExplore && (Boolean(state.compareA) || Boolean(state.compareB)));
+  els.btnResetMap.hidden = !showReset;
+
+  els.workspace.classList.toggle('has-side-panel', hasPanelOpen);
+  els.sidePanel.hidden = !hasPanelOpen;
+
+  // Bar status kontekstual
+  if (hasZoom) {
+    els.stageStatusBar.hidden = false;
+    els.stageStatusBar.innerHTML = `
+      <span>🔍 Fokus di <strong>${state.zoomedKawasan}</strong> • Arahkan kursor atau klik tiap provinsi untuk cek detailnya.</span>
+      <span>Tekan <kbd>Esc</kbd> / klik area laut untuk kembali</span>
+    `;
+  } else if (!isExplore) {
+    els.stageStatusBar.hidden = false;
+    if (!state.compareA) {
+      els.stageStatusBar.innerHTML = `<span>⚔️ <strong>Mode Bandingkan:</strong> Klik <strong>Pulau A</strong> di peta atau pilih lewat dropdown di panel kanan.</span>`;
+    } else if (!state.compareB) {
+      els.stageStatusBar.innerHTML = `<span>⚔️ Pulau A: <strong>${state.compareA}</strong> terpilih — sekarang klik <strong>Pulau B</strong> di peta!</span>`;
+    } else {
+      els.stageStatusBar.innerHTML = `<span>⚔️ Membandingkan <strong>${state.compareA}</strong> vs <strong>${state.compareB}</strong> — klik pulau lain di peta untuk mengganti.</span>`;
+    }
+  } else {
+    els.stageStatusBar.hidden = true;
   }
-  const region = state.data.kawasan[state.selectedKawasan];
-  return new Set((region?.beda_signifikan_tukey || []).map((item) => item.lawan));
+
+  // Update legenda dinamis sesuai mode
+  if (!isExplore && (state.compareA || state.compareB)) {
+    const items = [];
+    if (state.compareA) {
+      items.push(`<span class="legend-item"><span class="legend-dot cmp-a"></span>Pulau A: ${state.compareA}</span>`);
+    }
+    if (state.compareB) {
+      items.push(`<span class="legend-item"><span class="legend-dot cmp-b"></span>Pulau B: ${state.compareB}</span>`);
+    }
+    els.mapLegend.innerHTML = items.join('');
+  } else {
+    els.mapLegend.innerHTML = `
+      <span class="legend-item"><span class="legend-dot t1"></span>Tier 1: Tinggi</span>
+      <span class="legend-item"><span class="legend-dot t2"></span>Tier 2: Menengah</span>
+      <span class="legend-item"><span class="legend-dot t3"></span>Tier 3: Rendah</span>
+    `;
+  }
+
+  // Update active state pada pil cepat pulau
+  for (const chip of els.quickIslandsList.querySelectorAll('.island-chip')) {
+    const name = chip.getAttribute('data-quick-kawasan');
+    const active =
+      (isExplore && state.zoomedKawasan === name) ||
+      (!isExplore && (state.compareA === name || state.compareB === name));
+    chip.classList.toggle('is-active', active);
+  }
+
+  updateMapVisuals();
 }
 
 function updateMapVisuals() {
   if (!state.mapContext) return;
-  const { groupMap, overlayGroupMap, pathRegistry } = state.mapContext;
+  const { svg, groupMap, overlayGroupMap, pathRegistry } = state.mapContext;
   const { kawasan } = state.data;
-  const { minProd, maxProd } = state.audit;
 
-  const opponents = getActiveOpponentsSet();
-  const hasSelection = Boolean(state.selectedKawasan);
+  const isExplore = state.mode === 'explore';
+  const isZoomed = isExplore && Boolean(state.zoomedKawasan);
+  const isCompare = !isExplore;
 
-  // Update mode attribute pada root SVG
-  state.mapContext.svg.setAttribute('data-mode', state.mode);
-  state.mapContext.svg.classList.toggle('has-selection', hasSelection);
+  svg.classList.toggle('is-zoomed', isZoomed);
+  svg.classList.toggle('is-compare', isCompare);
 
-  // Update fill warna dasar setiap provinsi sesuai mode aktif
+  // Hitung rentang min-max internal jika sedang zoom-in ke satu pulau
+  let zoomedMin = 0;
+  let zoomedMax = 1;
+  let zoomedRank = 1;
+  if (isZoomed) {
+    const zReg = kawasan[state.zoomedKawasan];
+    zoomedMin = zReg.statistik.min;
+    zoomedMax = zReg.statistik.max;
+    zoomedRank = zReg.peringkat;
+  }
+
   for (const [, info] of pathRegistry.entries()) {
     const region = kawasan[info.kawasan];
     if (!region) continue;
 
-    let fillColor = getRegionColor(region.peringkat);
-    if (state.mode === 'provinsi') {
+    let fillColor = getRegionFillColor(region.peringkat);
+
+    if (isZoomed && info.kawasan === state.zoomedKawasan) {
+      // Gradasi internal pulau agar setiap provinsi mudah dibedakan saat di-zoom
       const provObj = state.provinceLookup.get(info.provinsi);
-      if (provObj) {
-        fillColor = getProvinceColor(provObj.Produktivitas, minProd, maxProd);
+      const val = provObj ? provObj.Produktivitas : region.statistik.mean;
+      fillColor = getInternalProvinceColor(val, zoomedMin, zoomedMax, zoomedRank);
+    } else if (isCompare) {
+      if (state.compareA === info.kawasan) {
+        fillColor = '#58CC02';
+      } else if (state.compareB === info.kawasan) {
+        fillColor = '#38BDF8';
       }
     }
 
-    const isOpponent = state.mode === 'kawasan' && hasSelection && opponents.has(info.kawasan);
-    info.element.style.fill = isOpponent ? 'url(#tukey-coral-pattern)' : fillColor;
+    info.element.style.fill = fillColor;
 
-    // Status hover/selection tingkat provinsi (Mode Provinsi)
-    const isProvHovered = state.mode === 'provinsi' && state.hoveredSvgId === info.svgId;
-    const isProvSelected =
-      state.mode === 'provinsi' &&
-      state.selectedProvince &&
-      info.provinsiGroup.includes(state.selectedProvince);
+    const isProvHover =
+      isZoomed &&
+      info.kawasan === state.zoomedKawasan &&
+      (state.hoveredSvgId === info.svgId ||
+        (state.syncedProvince && info.provinsiGroup.includes(state.syncedProvince)));
 
-    info.element.classList.toggle('is-prov-hovered', isProvHovered);
-    info.element.classList.toggle('is-prov-selected', Boolean(isProvSelected));
-    info.outline.classList.toggle('is-prov-hovered', isProvHovered);
-    info.outline.classList.toggle('is-prov-selected', Boolean(isProvSelected));
+    info.element.classList.toggle('is-prov-hovered', Boolean(isProvHover));
+    info.outline.classList.toggle('is-prov-hovered', Boolean(isProvHover));
 
-    // Aksesibilitas label dinamis
-    if (state.mode === 'kawasan') {
-      info.element.setAttribute(
-        'aria-label',
-        `${formatProvinceName(info.provinsi)}, Kawasan ${info.kawasan}, peringkat ${region.peringkat}, rata-rata ${formatNumber(region.statistik.mean, 2)} kuintal per hektar`
-      );
-    } else {
+    if (isZoomed && info.kawasan === state.zoomedKawasan) {
       const pObj = state.provinceLookup.get(info.provinsi);
       info.element.setAttribute(
         'aria-label',
-        `${formatProvinceName(info.provinsi)} (${info.kawasan}), produktivitas ${formatNumber(pObj?.Produktivitas, 2)} kuintal per hektar`
+        `${formatProvinceName(info.provinsi)}, produktivitas ${formatNumber(pObj?.Produktivitas, 2)} kuintal per hektar`
+      );
+    } else {
+      info.element.setAttribute(
+        'aria-label',
+        `${formatProvinceName(info.provinsi)} (${info.kawasan}), rata-rata kawasan ${formatNumber(region.statistik.mean, 2)} kuintal per hektar`
       );
     }
   }
 
-  // Update status group kawasan (selected, tukey-opponent, dimmed, hovered)
-  for (const [kawasanName, groupEl] of groupMap.entries()) {
-    const isSelected = state.selectedKawasan === kawasanName;
-    const isOpponent = hasSelection && opponents.has(kawasanName);
-    const isDimmed = hasSelection && !isSelected && !isOpponent;
-    const isHovered =
-      state.mode === 'kawasan'
-        ? state.hoveredKawasan === kawasanName
-        : false;
+  const hasHoverInFull = isExplore && !isZoomed && Boolean(state.hoveredKawasan);
+  const hasCompareBoth = isCompare && Boolean(state.compareA) && Boolean(state.compareB);
 
-    groupEl.classList.toggle('is-selected', isSelected);
-    groupEl.classList.toggle('is-tukey-opponent', isOpponent);
-    groupEl.classList.toggle('is-dimmed', isDimmed);
-    groupEl.classList.toggle('is-hovered', isHovered);
+  for (const [name, g] of groupMap.entries()) {
+    const isHovered = isExplore && !isZoomed && state.hoveredKawasan === name;
+    const isSelected = isZoomed && state.zoomedKawasan === name;
+    const isCompareA = isCompare && state.compareA === name;
+    const isCompareB = isCompare && state.compareB === name;
 
-    const overlayGroup = overlayGroupMap.get(kawasanName);
-    if (overlayGroup) {
-      overlayGroup.classList.toggle('is-selected', isSelected);
-      overlayGroup.classList.toggle('is-tukey-opponent', isOpponent);
-      overlayGroup.classList.toggle('is-hovered', isHovered);
+    let isDimmed = false;
+    if (isZoomed) {
+      isDimmed = name !== state.zoomedKawasan;
+    } else if (hasHoverInFull) {
+      isDimmed = name !== state.hoveredKawasan;
+    } else if (isCompare && (state.compareA || state.compareB)) {
+      isDimmed = !isCompareA && !isCompareB;
+    }
+
+    g.classList.toggle('is-hovered', isHovered);
+    g.classList.toggle('is-selected', isSelected);
+    g.classList.toggle('is-dimmed', isDimmed);
+
+    const og = overlayGroupMap.get(name);
+    if (og) {
+      og.classList.toggle('is-hovered', isHovered || (isCompare && state.hoveredKawasan === name));
+      og.classList.toggle('is-selected', isSelected);
+      og.classList.toggle('is-compare-a', isCompareA);
+      og.classList.toggle('is-compare-b', isCompareB);
     }
   }
 
-  // Kontrol toolbar reset & status pill
-  els.btnReset.hidden = !hasSelection && !state.selectedProvince;
-  if (state.selectedKawasan) {
-    const region = kawasan[state.selectedKawasan];
-    els.statusPill.hidden = false;
-    if (state.focusedOpponent) {
-      els.statusPill.innerHTML = `Pasangan: <strong>${state.selectedKawasan}</strong> vs <strong>${state.focusedOpponent}</strong>`;
-    } else {
-      const nOpp = region.beda_signifikan_tukey.length;
-      els.statusPill.innerHTML =
-        nOpp > 0
-          ? `Fokus: <strong>${state.selectedKawasan}</strong> • <span class="coral-text">${nOpp} lawan beda signifikan</span>`
-          : `Fokus: <strong>${state.selectedKawasan}</strong> • Posisi menengah`;
-    }
+  if (hasCompareBoth) {
+    state.mapContext.drawCompareArc(state.compareA, state.compareB);
   } else {
-    els.statusPill.hidden = true;
-    els.statusPill.textContent = '';
+    state.mapContext.clearCompareArc();
   }
 }
 
-function renderDetailPanel() {
-  if (!state.selectedKawasan) {
-    renderOverviewPanel();
-  } else {
-    renderKawasanDetailPanel(state.selectedKawasan);
-  }
-}
-
-function renderOverviewPanel() {
-  const { kawasanRanked, audit } = state;
-
-  const regionCardsHtml = kawasanRanked
-    .map((region) => {
-      const color = getRegionColor(region.peringkat);
-      const cvInfo = getCvInterpretation(region.statistik.cv_persen);
-      const barPct = Math.min(100, (region.statistik.mean / MAX_PROGRESS_SCALE) * 100);
-      const nTukey = region.beda_signifikan_tukey.length;
-
-      return `
-        <button
-          type="button"
-          class="region-list-card"
-          data-select-kawasan="${region.name}"
-        >
-          <div class="region-card-top">
-            <div class="region-card-identity">
-              <span class="region-swatch" style="background:${color}" aria-hidden="true"></span>
-              <span class="rank-pill mono">#${region.peringkat}</span>
-              <span class="region-name">${region.name}</span>
-            </div>
-            <div class="region-card-mean mono">
-              <strong>${formatNumber(region.statistik.mean, 2)}</strong>
-              <span>ku/ha</span>
-            </div>
-          </div>
-          <div class="region-mini-bar" aria-hidden="true">
-            <span class="region-mini-fill" style="width:${barPct.toFixed(1)}%; background:${color}"></span>
-          </div>
-          <div class="region-card-meta">
-            <span>${region.statistik.n} provinsi • CV ${formatNumber(region.statistik.cv_persen, 1)}% (${cvInfo.label})</span>
-            ${
-              nTukey > 0
-                ? `<span class="tukey-tag">${nTukey} beda nyata</span>`
-                : '<span class="neutral-tag">Menengah</span>'
-            }
-          </div>
-        </button>
-      `;
-    })
-    .join('');
-
-  const pairCardsHtml = audit.tukeyPairs
-    .map((pair) => {
-      return `
-        <button
-          type="button"
-          class="pair-card"
-          data-pair-higher="${pair.higher}"
-          data-pair-lower="${pair.lower}"
-        >
-          <div class="pair-names">
-            <span class="pair-dot is-higher" aria-hidden="true"></span>
-            <strong>${pair.higher}</strong>
-            <span class="pair-vs">vs</span>
-            <span class="pair-dot is-lower" aria-hidden="true"></span>
-            <strong>${pair.lower}</strong>
-          </div>
-          <div class="pair-stats mono">
-            <span class="pair-diff">+${formatNumber(pair.selisih, 2)} ku/ha</span>
-            <span class="pair-p">p = ${formatPValue(pair.p_adj)}</span>
-          </div>
-        </button>
-      `;
-    })
-    .join('');
-
-  els.detailPanel.innerHTML = `
-    <div class="panel-header">
-      <div>
-        <span class="panel-kicker">Ikhtisar Nasional</span>
-        <h2 class="panel-title">6 Kawasan Kepulauan</h2>
-      </div>
-      <span class="panel-sub-badge mono">Peringkat 1–6</span>
-    </div>
-
-    <p class="panel-intro">
-      Klik pulau di peta atau pilih kartu kawasan di bawah untuk melihat metrik statistik, uji normalitas, perbandingan Tukey HSD, dan rincian 38 provinsi.
-    </p>
-
-    <div class="region-list" role="list">
-      ${regionCardsHtml}
-    </div>
-
-    <section class="tukey-highlight-box" aria-label="Pasangan Berbeda Signifikan Tukey HSD">
-      <div class="section-heading-row">
-        <h3>${audit.tukeyPairs.length} Pasangan Berbeda Signifikan (Tukey HSD)</h3>
-        <span class="alpha-chip mono">&alpha; = 0,05</span>
-      </div>
-      <p class="section-helper">Klik pasangan untuk menyorot perbedaan geografisnya di peta:</p>
-      <div class="pair-list">
-        ${pairCardsHtml}
-      </div>
-    </section>
-  `;
-}
-
-function renderKawasanDetailPanel(kawasanName) {
+function renderInsightPanel(kawasanName) {
   const region = state.data.kawasan[kawasanName];
   if (!region) return;
 
   const { nasional } = state.data;
-  const stats = region.statistik;
-  const deltaNat = stats.mean - nasional.mean_provinsi;
-  const cvInfo = getCvInterpretation(stats.cv_persen);
-  const color = getRegionColor(region.peringkat);
-  const totalKawasan = state.kawasanRanked.length;
-
-  const pairBannerHtml = state.focusedOpponent
-    ? `
-      <div class="pair-focus-banner">
-        <div>
-          <strong>Sorotan Pasangan:</strong> ${kawasanName} vs ${state.focusedOpponent}
-        </div>
-        <button type="button" class="link-btn" id="btn-show-all-opponents">
-          Tampilkan semua lawan
-        </button>
-      </div>
-    `
-    : '';
+  const tier = getTierForRank(region.peringkat);
+  const tierCfg = TIER_CONFIG[tier];
+  const cvBadge = getCvFriendlyBadge(region.statistik.cv_persen);
+  const story = buildRegionStory(kawasanName, region, nasional);
+  const sortedProvs = [...region.provinsi].sort((a, b) => b.Produktivitas - a.Produktivitas);
+  const refLeftPct = ((nasional.mean_provinsi / MAX_BAR_SCALE) * 100).toFixed(2);
 
   const tukeyHtml =
     region.beda_signifikan_tukey.length > 0
       ? `
-        <div class="tukey-cards">
+        <div class="tukey-chips-list">
           ${region.beda_signifikan_tukey
-            .map((item) => {
-              const isHigher = item.arah === 'lebih tinggi';
-              const isFocused = state.focusedOpponent === item.lawan;
+            .map((diff) => {
+              const up = diff.arah === 'lebih tinggi';
               return `
                 <button
                   type="button"
-                  class="tukey-opponent-card ${isFocused ? 'is-focused' : ''}"
-                  data-select-kawasan="${item.lawan}"
+                  class="tukey-chip-btn"
+                  data-compare-pair="${kawasanName}::${diff.lawan}"
+                  title="Klik untuk langsung membandingkan ${kawasanName} vs ${diff.lawan}"
                 >
-                  <div class="tukey-opp-main">
-                    <span class="tukey-dir ${isHigher ? 'dir-up' : 'dir-down'}">
-                      ${isHigher ? 'Lebih tinggi' : 'Lebih rendah'}
-                      <strong class="mono">${isHigher ? '+' : '-'}${formatNumber(item.selisih_ku_ha, 2)} ku/ha</strong>
-                    </span>
-                    <span class="tukey-opp-target">dibanding <strong>${item.lawan}</strong></span>
-                  </div>
-                  <div class="tukey-opp-meta mono">
-                    <span>p-adj = ${formatPValue(item.p_adj)}</span>
-                    <span class="jump-arrow" aria-hidden="true">&rarr;</span>
-                  </div>
+                  <span>
+                    vs <strong>${diff.lawan}</strong>:
+                    <strong class="mono">${up ? '+' : '-'}${formatNumber(diff.selisih_ku_ha, 2)} ku/ha</strong>
+                    (Beda Nyata! p=${formatPValue(diff.p_adj)})
+                  </span>
+                  <span aria-hidden="true">⚔️</span>
                 </button>
               `;
             })
@@ -493,247 +374,468 @@ function renderKawasanDetailPanel(kawasanName) {
         </div>
       `
       : `
-        <div class="neutral-info-box">
-          Tidak terdapat perbedaan rata-rata yang signifikan secara statistik terhadap kawasan lain pada &alpha; = 0,05 (posisi menengah).
+        <div class="friendly-neutral-box">
+          Posisinya di tengah—secara statistik tidak berbeda jauh dari pulau lain (Tukey HSD, &alpha; = 0,05).
         </div>
       `;
 
-  const sortedProvinces = [...region.provinsi].sort((a, b) => b.Produktivitas - a.Produktivitas);
-  const refLinePct = ((nasional.mean_provinsi / MAX_PROGRESS_SCALE) * 100).toFixed(2);
-
-  const provinceRowsHtml = sortedProvinces
+  const provBarsHtml = sortedProvs
     .map((prov) => {
-      const pct = Math.min(100, Math.max(0, (prov.Produktivitas / MAX_PROGRESS_SCALE) * 100));
-      const isSelectedRow = state.selectedProvince === prov.Provinsi;
-      const aboveAvg = prov.Produktivitas >= nasional.mean_provinsi;
-
+      const pct = Math.min(100, Math.max(0, (prov.Produktivitas / MAX_BAR_SCALE) * 100));
+      const fillColor = getInternalProvinceColor(
+        prov.Produktivitas,
+        region.statistik.min,
+        region.statistik.max,
+        region.peringkat
+      );
+      const isSynced = state.syncedProvince === prov.Provinsi;
       return `
-        <div class="province-row ${isSelectedRow ? 'is-highlighted-row' : ''}" data-prov-row="${prov.Provinsi}">
-          <div class="province-row-top">
-            <span class="province-name">${formatProvinceName(prov.Provinsi)}</span>
-            <span class="province-value mono">
-              <strong>${formatNumber(prov.Produktivitas, 2)}</strong> ku/ha
-            </span>
+        <button
+          type="button"
+          class="prov-bar-item ${isSynced ? 'is-synced' : ''}"
+          data-prov-name="${prov.Provinsi}"
+        >
+          <div class="prov-bar-head">
+            <span class="prov-bar-name">${formatProvinceName(prov.Provinsi)}</span>
+            <span class="prov-bar-num mono">${formatNumber(prov.Produktivitas, 2)} ku/ha</span>
           </div>
-          <div class="progress-track" aria-hidden="true">
-            <div
-              class="progress-fill ${aboveAvg ? 'is-above' : 'is-below'}"
-              style="width:${pct.toFixed(2)}%"
-            ></div>
+          <div class="chunky-track" aria-hidden="true">
+            <div class="chunky-fill" style="width:${pct.toFixed(1)}%; background:${fillColor}"></div>
             <span
-              class="progress-ref-line"
-              style="left:${refLinePct}%"
+              class="chunky-ref-marker"
+              style="left:${refLeftPct}%"
               title="Rata-rata 38 provinsi: ${formatNumber(nasional.mean_provinsi, 2)} ku/ha"
             ></span>
           </div>
-          <div class="province-row-sub mono">
-            <span>Luas Panen: ${formatAreaOrProd(prov.Luas_Panen)} ha</span>
+          <div class="prov-bar-meta mono">
+            <span>Luas: ${formatAreaOrProd(prov.Luas_Panen)} ha</span>
             <span>Produksi: ${formatAreaOrProd(prov.Produksi)} ton</span>
           </div>
-        </div>
+        </button>
       `;
     })
     .join('');
 
-  const dobFootnoteHtml =
+  const dobFootnote =
     kawasanName === 'Maluku & Papua'
       ? `
-        <p class="dob-footnote">
-          <strong>Catatan batas wilayah:</strong> Peta SVG menggunakan batas 34 provinsi (Papua &amp; Papua Barat pra-pemekaran), sedangkan analisis statistik menampilkan lengkap seluruh <strong>8 provinsi BPS ${state.data.meta.tahun}</strong> di kawasan ini termasuk 4 DOB Papua.
-        </p>
+        <div class="dob-note">
+          Peta memakai batas 34 provinsi, namun daftar ini memuat lengkap seluruh <strong>8 provinsi BPS ${state.data.meta.tahun}</strong> termasuk 4 DOB Papua.
+        </div>
       `
       : '';
 
-  els.detailPanel.innerHTML = `
-    <div class="detail-top-nav">
-      <button type="button" id="btn-back-overview" class="btn-back">
-        &larr; Semua Kawasan
-      </button>
-      <span class="rank-badge-lg" style="border-color:${color}">
-        <span class="region-swatch" style="background:${color}" aria-hidden="true"></span>
-        Peringkat #${region.peringkat} dari ${totalKawasan}
+  els.sidePanel.innerHTML = `
+    <div class="panel-top-row">
+      <span class="rank-sticker ${tierCfg.badgeClass}">
+        ${getRankMedal(region.peringkat)} • ${tierCfg.label}
+      </span>
+      <span class="mono" style="font-size:12px;color:var(--ink-secondary);font-weight:700;">
+        ${region.statistik.n} provinsi
       </span>
     </div>
 
-    <div class="detail-title-block">
-      <h2>${kawasanName}</h2>
-      <span class="mono detail-n-badge">n = ${stats.n} provinsi</span>
-    </div>
+    <h2 class="panel-hero-title">${kawasanName}</h2>
+    <p class="story-box">${story}</p>
 
-    ${pairBannerHtml}
-
-    <!-- 2x2 Grid Metrik Utama -->
-    <div class="metrics-grid">
-      <div class="metric-tile">
-        <div class="metric-label">Rata-rata (Mean)</div>
-        <div class="metric-val mono">${formatNumber(stats.mean, 2)} <small>ku/ha</small></div>
-        <div class="metric-sub mono ${deltaNat >= 0 ? 'text-pos' : 'text-neg'}">
-          ${formatSignedDelta(deltaNat, 2)} vs rerata ${nasional.n_provinsi} prov.
-        </div>
+    <div class="mini-tiles-3">
+      <div class="mini-tile">
+        <span class="mini-tile-label">Rata-rata</span>
+        <span class="mini-tile-val">${formatNumber(region.statistik.mean, 2)}</span>
+        <span class="mini-tile-sub">ku/ha</span>
       </div>
-
-      <div class="metric-tile">
-        <div class="metric-label">Median &amp; IQR</div>
-        <div class="metric-val mono">${formatNumber(stats.median, 2)} <small>ku/ha</small></div>
-        <div class="metric-sub mono">IQR ${formatNumber(stats.iqr, 2)} • SD ${formatNumber(stats.sd, 2)}</div>
+      <div class="mini-tile">
+        <span class="mini-tile-label">Nilai Tengah</span>
+        <span class="mini-tile-val">${formatNumber(region.statistik.median, 2)}</span>
+        <span class="mini-tile-sub">IQR ${formatNumber(region.statistik.iqr, 2)}</span>
       </div>
-
-      <div class="metric-tile">
-        <div class="metric-label">Rentang (Min – Max)</div>
-        <div class="metric-val mono">${formatNumber(stats.min, 2)} – ${formatNumber(stats.max, 2)}</div>
-        <div class="metric-sub mono">Selisih ${formatNumber(stats.max - stats.min, 2)} ku/ha</div>
-      </div>
-
-      <div class="metric-tile">
-        <div class="metric-label">Koefisien Variasi (CV)</div>
-        <div class="metric-val mono">${formatNumber(stats.cv_persen, 2)}%</div>
-        <div class="metric-sub">
-          <span class="cv-pill ${cvInfo.badgeClass}">${cvInfo.label}</span>
-        </div>
+      <div class="mini-tile">
+        <span class="mini-tile-label">Pemerataan</span>
+        <span class="mini-tile-val">${formatNumber(region.statistik.cv_persen, 1)}%</span>
+        <span class="mini-tile-sub">${cvBadge.label}</span>
       </div>
     </div>
 
-    <!-- Validasi Asumsi Shapiro-Wilk -->
-    <div class="assumption-box">
-      <div class="assumption-head">
-        <span class="assumption-title">Validasi Asumsi (Shapiro–Wilk)</span>
-        <span class="badge ${region.shapiro_wilk.normal ? 'badge-success' : 'badge-neutral'}">
-          ${region.shapiro_wilk.normal ? 'Lolos Normalitas (p > 0,05)' : 'Tidak Normal'}
-        </span>
-      </div>
-      <div class="assumption-nums mono">
-        <span>W = ${formatNumber(region.shapiro_wilk.W, 4)}</span>
-        <span>p-value = ${formatPValue(region.shapiro_wilk.p_value)}</span>
-      </div>
-    </div>
-
-    <!-- Hasil Uji Beda Post-Hoc (Tukey HSD) -->
-    <section class="detail-section">
-      <div class="section-heading-row">
-        <h3>Hasil Uji Beda Post-Hoc (Tukey HSD)</h3>
-      </div>
+    <div>
+      <h3 class="panel-section-title">
+        <span>Uji Beda vs Pulau Lain (Tukey HSD)</span>
+      </h3>
       ${tukeyHtml}
-    </section>
+    </div>
 
-    <!-- Rincian Provinsi -->
-    <section class="detail-section">
-      <div class="section-heading-row">
-        <h3>Rincian Provinsi (${region.provinsi.length})</h3>
-        <span class="ref-legend mono">
-          <span class="ref-tick-sample" aria-hidden="true"></span>
-          Rerata ${formatNumber(nasional.mean_provinsi, 2)}
-        </span>
-      </div>
-      <div class="province-list">
-        ${provinceRowsHtml}
-      </div>
-      ${dobFootnoteHtml}
-    </section>
+    <div>
+      <h3 class="panel-section-title">
+        <span>Peringkat Provinsi (${region.provinsi.length})</span>
+        <span class="mono" style="font-size:11px;color:var(--ink-secondary);">Garis: ${formatNumber(nasional.mean_provinsi, 2)}</span>
+      </h3>
+      <div class="prov-bars-list">${provBarsHtml}</div>
+    </div>
+
+    ${dobFootnote}
+
+    <div class="panel-footer-actions">
+      <button type="button" class="pill-btn pill-btn-sky" id="btn-compare-from-insight">
+        ⚔️ Bandingkan ${kawasanName} dengan Pulau Lain
+      </button>
+      <button type="button" class="pill-btn" id="btn-back-indonesia">
+        ← Kembali ke Peta Indonesia
+      </button>
+    </div>
   `;
 }
 
-function buildTooltipHtml(pathInfo) {
-  const region = state.data.kawasan[pathInfo.kawasan];
-  if (!region) return '';
+function animateCompareNumbers(meanA, meanB, diffVal) {
+  if (state.countUpAnimId !== null) {
+    cancelAnimationFrame(state.countUpAnimId);
+    state.countUpAnimId = null;
+  }
 
-  if (state.mode === 'kawasan') {
-    const cvInfo = getCvInterpretation(region.statistik.cv_persen);
-    const nTukey = region.beda_signifikan_tukey.length;
-    const tukeySummary =
-      nTukey > 0
-        ? `Beda signifikan dgn ${nTukey} kawasan`
-        : 'Tidak beda signifikan (posisi menengah)';
+  const elA = document.getElementById('cmp-score-a');
+  const elB = document.getElementById('cmp-score-b');
+  const elDiff = document.getElementById('cmp-diff-num');
+  const barA = document.getElementById('cmp-bar-a');
+  const barB = document.getElementById('cmp-bar-b');
+  if (!elA || !elB || !elDiff) return;
 
-    return `
-      <div class="tt-head">
-        <strong class="tt-title">${pathInfo.kawasan}</strong>
-        <span class="tt-rank mono">#${region.peringkat}</span>
+  // Memicu animasi bar tumbuh pada frame berikutnya
+  requestAnimationFrame(() => {
+    if (barA) barA.style.width = `${Math.min(100, (meanA / MAX_BAR_SCALE) * 100).toFixed(1)}%`;
+    if (barB) barB.style.width = `${Math.min(100, (meanB / MAX_BAR_SCALE) * 100).toFixed(1)}%`;
+  });
+
+  const start = performance.now();
+  const duration = 520;
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+  function frame(now) {
+    const raw = Math.min(1, (now - start) / duration);
+    const t = easeOut(raw);
+    elA.textContent = `${formatNumber(meanA * t, 2)} ku/ha`;
+    elB.textContent = `${formatNumber(meanB * t, 2)} ku/ha`;
+    elDiff.textContent = `${formatNumber(diffVal * t, 2)} ku/ha`;
+    if (raw < 1) {
+      state.countUpAnimId = requestAnimationFrame(frame);
+    } else {
+      state.countUpAnimId = null;
+    }
+  }
+  state.countUpAnimId = requestAnimationFrame(frame);
+}
+
+function renderComparePanel() {
+  const optionsHtml = (selectedName, placeholder) => {
+    const opts = state.kawasanRanked
+      .map(
+        (r) =>
+          `<option value="${r.name}" ${selectedName === r.name ? 'selected' : ''}>${getRankMedal(r.peringkat)} ${r.name} (${formatNumber(r.statistik.mean, 1)})</option>`
+      )
+      .join('');
+    return `<option value="">${placeholder}</option>${opts}`;
+  };
+
+  const pairShortcutsHtml = state.audit.tukeyPairs
+    .map(
+      (p) => `
+      <button type="button" class="shortcut-pair-btn" data-quick-pair="${p.higher}::${p.lower}">
+        <span>✨ ${p.higher} vs ${p.lower}</span>
+        <span class="mono">+${formatNumber(p.selisih, 2)} ku/ha</span>
+      </button>
+    `
+    )
+    .join('');
+
+  let resultHtml = `
+    <div class="compare-result-card">
+      <div style="font-weight:700;font-size:13px;color:var(--ink);">
+        Pilih dua pulau di atas (atau klik langsung di peta) untuk melihat apakah selisih panennya beda nyata atau cuma kebetulan statistik!
       </div>
-      <div class="tt-grid mono">
-        <div><span>Mean</span><strong>${formatNumber(region.statistik.mean, 2)} ku/ha</strong></div>
-        <div><span>Median</span><strong>${formatNumber(region.statistik.median, 2)} ku/ha</strong></div>
-        <div><span>CV Internal</span><strong>${formatNumber(region.statistik.cv_persen, 2)}% (${cvInfo.label})</strong></div>
+      <div>
+        <div class="panel-section-title"><span>🔥 3 Pasangan Paling Timpang</span></div>
+        <div class="shortcut-chips">${pairShortcutsHtml}</div>
       </div>
-      <div class="tt-footer">
-        <span class="tt-tukey ${nTukey > 0 ? 'is-sig' : ''}">${tukeySummary}</span>
-        <span class="tt-cta">Klik untuk detail</span>
+    </div>
+  `;
+
+  let hasValidPair = false;
+  let regA = null;
+  let regB = null;
+  let pairInfo = null;
+
+  if (state.compareA && state.compareB && state.compareA !== state.compareB) {
+    hasValidPair = true;
+    regA = state.data.kawasan[state.compareA];
+    regB = state.data.kawasan[state.compareB];
+    pairInfo = getTukeyPairInfo(state.compareA, state.compareB);
+
+    const sackCount = (mean) => '🌾'.repeat(Math.max(1, Math.min(5, Math.round(mean / 11))));
+    const explanation = pairInfo.significant
+      ? `Rata-rata produktivitas <strong>${pairInfo.higher}</strong> lebih tinggi <strong class="mono">${formatNumber(pairInfo.selisih, 2)} ku/ha</strong> dibanding <strong>${pairInfo.lower}</strong> (Tukey HSD <span class="mono">p = ${formatPValue(pairInfo.pAdj)}</span> &lt; 0,05). Perbedaan ini terlalu konsisten untuk dianggap kebetulan.`
+      : `Selisih rata-rata kedua pulau hanya <strong class="mono">${formatNumber(pairInfo.selisih, 2)} ku/ha</strong>. Karena variasi antarprovinsi di dalamnya cukup lebar (CV ${formatNumber(regA.statistik.cv_persen, 1)}% vs ${formatNumber(regB.statistik.cv_persen, 1)}%), uji Tukey HSD pada &alpha; = 0,05 menyatakan keduanya belum terbukti berbeda nyata.`;
+
+    resultHtml = `
+      <div class="compare-result-card">
+        <div class="verdict-badge ${pairInfo.significant ? 'is-sig' : 'is-ns'}">
+          ${pairInfo.significant ? 'BEDA NYATA SECARA STATISTIK ✨' : 'SECARA STATISTIK MIRIP / BELUM CUKUP BUKTI BEDA 🤝'}
+        </div>
+
+        <div class="compare-bars-grid">
+          <div class="compare-island-row">
+            <div class="compare-island-head">
+              <span>🟢 ${state.compareA} <span aria-hidden="true">${sackCount(regA.statistik.mean)}</span></span>
+              <span id="cmp-score-a" class="compare-big-score">0,00 ku/ha</span>
+            </div>
+            <div class="compare-track"><div id="cmp-bar-a" class="compare-fill is-a"></div></div>
+          </div>
+
+          <div class="compare-island-row">
+            <div class="compare-island-head">
+              <span>🔵 ${state.compareB} <span aria-hidden="true">${sackCount(regB.statistik.mean)}</span></span>
+              <span id="cmp-score-b" class="compare-big-score">0,00 ku/ha</span>
+            </div>
+            <div class="compare-track"><div id="cmp-bar-b" class="compare-fill is-b"></div></div>
+          </div>
+        </div>
+
+        <div class="compare-diff-callout">
+          <span>Selisih Rata-rata</span>
+          <span id="cmp-diff-num" class="mono" style="font-size:15px;color:var(--ink);">0,00 ku/ha</span>
+        </div>
+
+        <p class="compare-explain">${explanation}</p>
+
+        <div class="panel-footer-actions" style="border-top:none;padding-top:2px;">
+          <button type="button" class="pill-btn" id="btn-try-another-pair">🔄 Coba Pasangan Lain</button>
+          <div>
+            <div class="panel-section-title" style="margin-top:4px;"><span>Lihat 3 Pasangan Paling Timpang</span></div>
+            <div class="shortcut-chips">${pairShortcutsHtml}</div>
+          </div>
+        </div>
       </div>
     `;
   }
 
-  // Mode Provinsi
-  const natMean = state.data.nasional.mean_provinsi;
-  const provGroup = pathInfo.provinsiGroup || [pathInfo.provinsi];
+  els.sidePanel.innerHTML = `
+    <div class="panel-top-row">
+      <span class="rank-sticker tier-1-badge">⚔️ Mode Bandingkan</span>
+      <button type="button" class="btn-note-link" id="btn-compare-back-explore">← Mode Jelajah</button>
+    </div>
 
-  if (provGroup.length > 1) {
-    const rows = provGroup
-      .map((name) => {
-        const p = state.provinceLookup.get(name);
-        if (!p) return '';
-        const delta = p.Produktivitas - natMean;
+    <h2 class="panel-hero-title">Duel Produktivitas Pulau</h2>
+
+    <div class="compare-selectors">
+      <select id="select-compare-a" class="compare-select-pill is-a" aria-label="Pilih Pulau Pertama">
+        ${optionsHtml(state.compareA, 'Pilih Pulau A...')}
+      </select>
+      <span class="vs-badge" aria-hidden="true">VS</span>
+      <select id="select-compare-b" class="compare-select-pill is-b" aria-label="Pilih Pulau Kedua">
+        ${optionsHtml(state.compareB, 'Pilih Pulau B...')}
+      </select>
+    </div>
+
+    ${resultHtml}
+  `;
+
+  if (hasValidPair) {
+    animateCompareNumbers(regA.statistik.mean, regB.statistik.mean, pairInfo.selisih);
+  }
+}
+
+function renderKitchenStep() {
+  const step = state.kitchenStep;
+  const { meta, nasional } = state.data;
+  const audit = state.audit;
+
+  for (const tab of els.kitchenTabs.querySelectorAll('.step-tab')) {
+    const idx = Number(tab.getAttribute('data-step'));
+    tab.classList.toggle('is-active', idx === step);
+    tab.setAttribute('aria-selected', String(idx === step));
+  }
+
+  els.stepDots.innerHTML = [0, 1, 2, 3]
+    .map((i) => `<span class="step-dot ${i === step ? 'is-active' : ''}"></span>`)
+    .join('');
+
+  els.btnStepPrev.disabled = step === 0;
+  els.btnStepPrev.style.opacity = step === 0 ? '0.45' : '1';
+  els.btnStepNext.textContent = step === 3 ? 'Selesai ✓' : 'Lanjut →';
+
+  if (step === 0) {
+    els.kitchenBody.innerHTML = `
+      <p class="kitchen-lead">
+        Sebelum membandingkan antarpulau, seluruh data dari <strong>${meta.sumber} (${meta.tahun})</strong> diaudit agar bebas dari nilai kosong dan outlier ekstrem.
+      </p>
+      <div class="audit-grid">
+        <div class="audit-card">
+          <h3>✅ ${audit.nProvinsi} Provinsi Lengkap</h3>
+          <div class="mono" style="font-size:12.5px;">
+            • Data kosong: <strong>${audit.missingCount}</strong><br/>
+            • Outlier ekstrem IQR: <strong>${audit.extremeOutlierCount}</strong><br/>
+            • Skewness: <strong>${formatNumber(audit.skewness, 2)}</strong> (simetris)
+          </div>
+        </div>
+        <div class="audit-card">
+          <h3>⚖️ ${formatNumber(nasional.mean_provinsi, 2)} vs ${formatNumber(nasional.produktivitas_tertimbang_bps, 2)} ku/ha</h3>
+          <div style="font-size:12.5px;color:var(--ink-secondary);">
+            <strong>Mean Provinsi (${formatNumber(nasional.mean_provinsi, 2)})</strong> memberi bobot sama tiap provinsi untuk uji ANOVA,
+            sedangkan <strong>Angka BPS (${formatNumber(nasional.produktivitas_tertimbang_bps, 2)})</strong> tertimbang luas panen.
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (step === 1) {
+    const shapiroCards = state.kawasanRanked
+      .map(
+        (r) => `
+        <div class="shapiro-card">
+          <span><strong>✅ ${r.name}</strong> (n=${r.statistik.n})</span>
+          <span class="mono">W=${formatNumber(r.shapiro_wilk.W, 3)} | p=${formatPValue(r.shapiro_wilk.p_value)}</span>
+        </div>
+      `
+      )
+      .join('');
+
+    els.kitchenBody.innerHTML = `
+      <p class="kitchen-lead">
+        Uji <strong>Shapiro–Wilk</strong> memastikan data tiap pulau berdistribusi normal, dan <strong>Levene's Test</strong> memastikan ragam antarwilayah seragam.
+      </p>
+      <div class="shapiro-grid">${shapiroCards}</div>
+      <div class="formula-box">
+        <strong>Uji Homogenitas Varians (Levene's Test):</strong>
+        <div class="formula-eq">F = ${formatNumber(nasional.levene.F, 4)} &nbsp;|&nbsp; p-value = ${formatPValue(nasional.levene.p_value)} (&gt; 0,05 → Homogen ✅)</div>
+        <span style="font-size:12.5px;">
+          <em>Kesimpulan awam:</em> Karena data tiap pulau tersebar normal dan seragam, kita sah memakai uji <strong>One-Way ANOVA</strong> sebagai metode utama!
+        </span>
+      </div>
+    `;
+  } else if (step === 2) {
+    els.kitchenBody.innerHTML = `
+      <p class="kitchen-lead">
+        Kita menjalankan uji parametrik utama sekaligus uji non-parametrik sebagai penguat (karena jumlah provinsi tiap pulau bervariasi dari n = ${audit.minGroupN} hingga n = ${audit.maxGroupN}).
+      </p>
+      <div class="formula-box">
+        <strong>1. One-Way ANOVA (Uji Utama)</strong>
+        <div class="formula-eq">F = MS_antar / MS_dalam = ${formatNumber(nasional.anova.F, 2)} &nbsp;|&nbsp; p = ${formatPValue(nasional.anova.p_value)} &nbsp;|&nbsp; η² = ${formatNumber(nasional.anova.eta_sq, 4)}</div>
+        <span style="font-size:12.5px;">
+          <strong>${formatPercent(nasional.anova.eta_sq, 1)}</strong> variasi produktivitas padi antarprovinsi dijelaskan oleh faktor lokasi kepulauan (<strong>Efek Besar</strong>).
+        </span>
+      </div>
+      <div class="formula-box">
+        <strong>2. Kruskal–Wallis (Uji Sensitivitas / Robustness)</strong>
+        <div class="formula-eq">H = ${formatNumber(nasional.kruskal_wallis.H, 2)} &nbsp;|&nbsp; p = ${formatPValue(nasional.kruskal_wallis.p_value)} &nbsp;|&nbsp; ε² = ${formatNumber(nasional.kruskal_wallis.epsilon_sq, 4)}</div>
+        <span style="font-size:12.5px;">
+          Mengonfirmasi hasil tetap sangat signifikan meski ukuran kelompok tidak seimbang.
+        </span>
+      </div>
+    `;
+  } else {
+    const maxDiff = Math.max(...audit.tukeyPairs.map((p) => p.selisih), 20);
+    const forestHtml = audit.tukeyPairs
+      .map((p) => {
+        const w = Math.min(100, (p.selisih / maxDiff) * 90);
         return `
-          <div class="tt-multi-row">
-            <span>${formatProvinceName(name)}</span>
-            <strong class="mono">${formatNumber(p.Produktivitas, 2)} ku/ha <small>(${formatSignedDelta(delta, 2)})</small></strong>
+          <div class="forest-row">
+            <div class="forest-row-top">
+              <span><strong>${p.higher}</strong> vs <strong>${p.lower}</strong></span>
+              <span class="mono" style="font-weight:700;color:var(--tier1-border);">+${formatNumber(p.selisih, 2)} ku/ha (p=${formatPValue(p.p_adj)})</span>
+            </div>
+            <div class="forest-track" aria-hidden="true">
+              <div class="forest-bar" style="width:${w.toFixed(1)}%"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button type="button" class="pill-btn pill-btn-sky" style="min-height:32px;padding:4px 12px;font-size:12px;" data-spotlight-pair="${p.higher}::${p.lower}">
+                🔍 Sorot di Peta
+              </button>
+            </div>
           </div>
         `;
       })
       .join('');
 
+    els.kitchenBody.innerHTML = `
+      <p class="kitchen-lead">
+        Dari ${audit.totalPairs} kemungkinan pasangan antarpulau, uji lanjut <strong>Tukey HSD (&alpha; = 0,05)</strong> menemukan <strong>${audit.tukeyPairs.length} pasangan</strong> yang benar-benar berbeda signifikan:
+      </p>
+      <div class="forest-list">${forestHtml}</div>
+    `;
+  }
+}
+
+function buildTooltipHtml(info) {
+  const region = state.data.kawasan[info.kawasan];
+  if (!region) return '';
+
+  const natMean = state.data.nasional.mean_provinsi;
+
+  // Saat sedang zoom-in di dalam pulau, tampilkan tooltip detail provinsi
+  if (state.mode === 'explore' && state.zoomedKawasan === info.kawasan) {
+    const group = info.provinsiGroup || [info.provinsi];
+    const rows = group
+      .map((name) => {
+        const p = state.provinceLookup.get(name);
+        if (!p) return '';
+        const d = p.Produktivitas - natMean;
+        return `
+          <div class="tt-prov-row">
+            <span><strong>${formatProvinceName(name)}</strong></span>
+            <span class="mono"><strong>${formatNumber(p.Produktivitas, 2)}</strong> ku/ha (${formatSignedDelta(d, 2)})</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    const firstProv = state.provinceLookup.get(info.provinsi);
     return `
       <div class="tt-head">
-        <strong class="tt-title">${formatProvinceName(pathInfo.provinsi)} (+DOB)</strong>
-        <span class="tt-kawasan-tag">${pathInfo.kawasan}</span>
+        <span class="tt-badge">${formatProvinceName(info.provinsi)}${group.length > 1 ? ' (+DOB)' : ''}</span>
+        <span class="tt-tier-tag ${TIER_CONFIG[getTierForRank(region.peringkat)].badgeClass}">${info.kawasan}</span>
       </div>
-      <div class="tt-multi-list">${rows}</div>
-      <div class="tt-footer">
-        <span>Cakupan batas peta 34 prov. • Klik untuk detail kawasan</span>
+      <div class="tt-prov-stats">${rows}</div>
+      <div class="tt-cta" style="border-top:none;padding-top:0;">
+        ${
+          group.length === 1 && firstProv
+            ? `Luas ${formatAreaOrProd(firstProv.Luas_Panen)} ha • Produksi ${formatAreaOrProd(firstProv.Produksi)} ton`
+            : 'Cakupan batas peta 34 prov. • Lihat semua DOB di panel'
+        }
       </div>
     `;
   }
 
-  const p = state.provinceLookup.get(pathInfo.provinsi);
-  if (!p) return '';
-  const delta = p.Produktivitas - natMean;
+  // Mode penuh atau Bandingkan: tampilkan tooltip ramah level kawasan
+  const delta = region.statistik.mean - natMean;
+  const tier = getTierForRank(region.peringkat);
+  const tierCfg = TIER_CONFIG[tier];
+  const compareWord = delta >= 0 ? 'di atas rata-rata provinsi' : 'di bawah rata-rata provinsi';
+  const ctaText =
+    state.mode === 'compare'
+      ? 'Klik untuk pilih sebagai pulau pembanding →'
+      : 'Klik untuk zoom & bedah isi pulau →';
 
   return `
     <div class="tt-head">
-      <strong class="tt-title">${formatProvinceName(p.Provinsi)}</strong>
-      <span class="tt-kawasan-tag">${pathInfo.kawasan}</span>
+      <span class="tt-badge">${getRankMedal(region.peringkat)} ${info.kawasan}</span>
+      <span class="tt-tier-tag ${tierCfg.badgeClass}">${tierCfg.label.replace('Tier ', 'T')}</span>
     </div>
-    <div class="tt-grid mono">
-      <div><span>Produktivitas</span><strong>${formatNumber(p.Produktivitas, 2)} ku/ha</strong></div>
-      <div><span>vs Rerata Nas.</span><strong class="${delta >= 0 ? 'text-pos' : 'text-neg'}">${formatSignedDelta(delta, 2)} ku/ha</strong></div>
-      <div><span>Luas Panen</span><strong>${formatAreaOrProd(p.Luas_Panen)} ha</strong></div>
-    </div>
-    <div class="tt-footer">
-      <span>Klik untuk detail ${pathInfo.kawasan}</span>
-    </div>
+    <div class="tt-big-num">${formatNumber(region.statistik.mean, 2)} <small>ku/ha</small></div>
+    <div class="tt-compare-line"><span class="mono">${formatSignedDelta(delta, 2)} ku/ha</span> ${compareWord}</div>
+    <div class="tt-cta">${ctaText}</div>
   `;
 }
 
 function positionTooltip(clientX, clientY) {
-  const tooltip = els.mapTooltip;
-  if (tooltip.hidden) return;
-
-  const containerRect = els.mapStage.parentElement.getBoundingClientRect();
-  const ttRect = tooltip.getBoundingClientRect();
+  const tt = els.mapTooltip;
+  if (tt.hidden) return;
+  const hostRect = els.heroStage.getBoundingClientRect();
+  const ttRect = tt.getBoundingClientRect();
   const offset = 14;
 
-  let left = clientX - containerRect.left + offset;
-  let top = clientY - containerRect.top + offset;
-
-  if (left + ttRect.width > containerRect.width - 10) {
-    left = clientX - containerRect.left - ttRect.width - offset;
-  }
-  if (top + ttRect.height > containerRect.height - 10) {
-    top = clientY - containerRect.top - ttRect.height - offset;
-  }
+  let left = clientX - hostRect.left + offset;
+  let top = clientY - hostRect.top + offset;
+  if (left + ttRect.width > hostRect.width - 10) left = clientX - hostRect.left - ttRect.width - offset;
+  if (top + ttRect.height > hostRect.height - 10) top = clientY - hostRect.top - ttRect.height - offset;
 
   left = Math.max(8, left);
   top = Math.max(8, top);
-
-  tooltip.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
+  tt.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
 }
 
 function hideTooltip() {
@@ -745,53 +847,138 @@ function hideTooltip() {
   }
 }
 
-function selectKawasan(kawasanName, { focusedOpponent = null, selectedProvince = null } = {}) {
-  state.selectedKawasan = kawasanName;
-  state.focusedOpponent = focusedOpponent;
-  state.selectedProvince = selectedProvince;
-  renderDetailPanel();
-  updateMapVisuals();
+function zoomIntoKawasan(kawasanName) {
+  state.mode = 'explore';
+  state.zoomedKawasan = kawasanName;
+  state.hoveredKawasan = null;
+  state.hoveredSvgId = null;
+  state.syncedProvince = null;
+  els.mapTooltip.hidden = true;
 
-  if (selectedProvince) {
-    const row = els.detailPanel.querySelector(`[data-prov-row="${CSS.escape(selectedProvince)}"]`);
-    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
+  renderInsightPanel(kawasanName);
+  updateUIState();
+  state.mapContext?.zoomToKawasan(kawasanName);
 }
 
-function resetSelection() {
-  state.selectedKawasan = null;
-  state.focusedOpponent = null;
-  state.selectedProvince = null;
-  renderDetailPanel();
-  updateMapVisuals();
-}
-
-function setMode(nextMode) {
-  if (state.mode === nextMode) return;
-  state.mode = nextMode;
+function resetToFullMap() {
+  state.zoomedKawasan = null;
+  state.syncedProvince = null;
   state.hoveredKawasan = null;
   state.hoveredSvgId = null;
   els.mapTooltip.hidden = true;
 
-  const isKawasan = nextMode === 'kawasan';
-  els.btnModeKawasan.classList.toggle('is-active', isKawasan);
-  els.btnModeKawasan.setAttribute('aria-selected', String(isKawasan));
-  els.btnModeProvinsi.classList.toggle('is-active', !isKawasan);
-  els.btnModeProvinsi.setAttribute('aria-selected', String(!isKawasan));
+  if (state.mode === 'compare') {
+    state.compareA = null;
+    state.compareB = null;
+    state.compareSelectTarget = 'A';
+    renderComparePanel();
+  }
+  updateUIState();
+  state.mapContext?.resetZoom();
+}
 
-  renderLegend();
-  updateMapVisuals();
+function enterCompareMode(initialA = null, initialB = null) {
+  state.mode = 'compare';
+  state.zoomedKawasan = null;
+  state.syncedProvince = null;
+  state.hoveredKawasan = null;
+  state.hoveredSvgId = null;
+  state.compareA = initialA;
+  state.compareB = initialB;
+  state.compareSelectTarget = initialA && !initialB ? 'B' : 'A';
+  els.mapTooltip.hidden = true;
+
+  renderComparePanel();
+  updateUIState();
+
+  if (initialA && initialB && initialA !== initialB) {
+    state.mapContext?.zoomToPair(initialA, initialB);
+  } else {
+    state.mapContext?.resetZoom();
+  }
+}
+
+function openKitchenModal(stepIdx = 0) {
+  state.kitchenStep = stepIdx;
+  renderKitchenStep();
+  if (typeof els.kitchenDialog.showModal === 'function') {
+    els.kitchenDialog.showModal();
+  } else {
+    els.kitchenDialog.setAttribute('open', '');
+  }
+}
+
+function closeDialog(dialogEl) {
+  if (typeof dialogEl.close === 'function') {
+    dialogEl.close();
+  } else {
+    dialogEl.removeAttribute('open');
+  }
 }
 
 function bindEvents() {
-  // Segmented mode toggle
-  els.btnModeKawasan.addEventListener('click', () => setMode('kawasan'));
-  els.btnModeProvinsi.addEventListener('click', () => setMode('provinsi'));
-  els.btnReset.addEventListener('click', resetSelection);
+  // Popover penjelasan mean provinsi vs BPS tertimbang (bebas konflik hover + click)
+  const toggleMeanPopover = (show) => {
+    const next = typeof show === 'boolean' ? show : els.meanPopover.hidden;
+    els.meanPopover.hidden = !next;
+    els.pillMean.setAttribute('aria-expanded', String(next));
+  };
+  els.pillMean.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Saat klik dengan mouse, hanya tutup jika tidak baru saja dibuka lewat hover; pada touch/keyboard selalu toggle
+    if (state.isTouchPointer || e.detail === 0) {
+      toggleMeanPopover();
+    } else {
+      toggleMeanPopover(true);
+    }
+  });
+  els.pillMean.parentElement.addEventListener('pointerenter', (e) => {
+    if (e.pointerType !== 'touch') toggleMeanPopover(true);
+  });
+  els.pillMean.parentElement.addEventListener('pointerleave', (e) => {
+    if (e.pointerType !== 'touch') toggleMeanPopover(false);
+  });
+  document.addEventListener('click', (e) => {
+    if (!els.pillMean.parentElement.contains(e.target)) {
+      toggleMeanPopover(false);
+    }
+  });
 
-  // Interaksi peta via event delegation (anti-flicker saat pindah antarprovinsi)
+  // Pill 2 & Pill 3 shortcuts
+  els.pillTop.addEventListener('click', () => zoomIntoKawasan(state.kawasanRanked[0].name));
+  els.pillFinding.addEventListener('click', () => openKitchenModal(2));
+
+  // Floating bar buttons
+  els.btnExplore.addEventListener('click', () => {
+    if (state.mode === 'explore') return;
+    state.mode = 'explore';
+    state.compareA = null;
+    state.compareB = null;
+    resetToFullMap();
+  });
+
+  els.btnCompare.addEventListener('click', () => {
+    if (state.mode === 'compare') return;
+    enterCompareMode(state.zoomedKawasan || null, null);
+  });
+
+  els.btnResetMap.addEventListener('click', resetToFullMap);
+  els.btnOpenKitchen.addEventListener('click', () => openKitchenModal(0));
+
+  // Pil cepat 6 pulau
+  els.quickIslandsList.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-quick-kawasan]');
+    if (!chip) return;
+    const name = chip.getAttribute('data-quick-kawasan');
+    if (state.mode === 'explore') {
+      zoomIntoKawasan(name);
+    } else {
+      handleComparePick(name);
+    }
+  });
+
+  // Interaksi SVG Map
   const svg = state.mapContext.svg;
-
   svg.addEventListener('pointerdown', (e) => {
     state.isTouchPointer = e.pointerType === 'touch';
   });
@@ -808,41 +995,70 @@ function bindEvents() {
     const info = state.mapContext.pathRegistry.get(svgId);
     if (!info) return;
 
-    const hoverChanged =
-      state.mode === 'kawasan'
-        ? state.hoveredKawasan !== info.kawasan
-        : state.hoveredSvgId !== svgId;
+    const isZoomed = state.mode === 'explore' && Boolean(state.zoomedKawasan);
+    if (isZoomed && info.kawasan !== state.zoomedKawasan) {
+      hideTooltip();
+      return;
+    }
 
-    if (hoverChanged || els.mapTooltip.hidden) {
+    const changed = isZoomed
+      ? state.hoveredSvgId !== svgId
+      : state.hoveredKawasan !== info.kawasan;
+
+    if (changed || els.mapTooltip.hidden) {
       state.hoveredKawasan = info.kawasan;
       state.hoveredSvgId = svgId;
+      state.syncedProvince = isZoomed ? info.provinsi : null;
       els.mapTooltip.innerHTML = buildTooltipHtml(info);
       els.mapTooltip.hidden = false;
       updateMapVisuals();
-    }
 
+      if (isZoomed) {
+        for (const item of els.sidePanel.querySelectorAll('.prov-bar-item')) {
+          item.classList.toggle('is-synced', info.provinsiGroup.includes(item.getAttribute('data-prov-name')));
+        }
+      }
+    }
     positionTooltip(e.clientX, e.clientY);
   });
 
   svg.addEventListener('pointerleave', () => {
     hideTooltip();
+    if (state.syncedProvince) {
+      state.syncedProvince = null;
+      for (const item of els.sidePanel.querySelectorAll('.prov-bar-item')) {
+        item.classList.remove('is-synced');
+      }
+    }
   });
 
   svg.addEventListener('click', (e) => {
     const pathEl = e.target.closest('.province-path');
-    if (!pathEl) return;
-    const svgId = pathEl.getAttribute('id');
-    const info = state.mapContext.pathRegistry.get(svgId);
+    if (!pathEl) {
+      // Klik area laut kosong saat sedang zoom-in mengembalikan ke peta penuh
+      if (state.mode === 'explore' && state.zoomedKawasan) {
+        resetToFullMap();
+      }
+      return;
+    }
+    const info = state.mapContext.pathRegistry.get(pathEl.getAttribute('id'));
     if (!info) return;
 
-    if (state.mode === 'kawasan') {
-      if (state.selectedKawasan === info.kawasan && !state.focusedOpponent) {
-        resetSelection();
+    if (state.mode === 'explore') {
+      if (state.zoomedKawasan === info.kawasan) {
+        // Klik provinsi di pulau yang sedang di-zoom menyorot baris provinsinya di panel
+        state.syncedProvince = info.provinsi;
+        updateMapVisuals();
+        for (const item of els.sidePanel.querySelectorAll('.prov-bar-item')) {
+          const match = info.provinsiGroup.includes(item.getAttribute('data-prov-name'));
+          item.classList.toggle('is-synced', match);
+          if (match) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
       } else {
-        selectKawasan(info.kawasan);
+        zoomIntoKawasan(info.kawasan);
       }
     } else {
-      selectKawasan(info.kawasan, { selectedProvince: info.provinsi });
+      handleComparePick(info.kawasan);
     }
   });
 
@@ -854,88 +1070,170 @@ function bindEvents() {
     pathEl.click();
   });
 
-  // Delegasi klik & hover preview pada Panel Detail Samping
-  els.detailPanel.addEventListener('click', (e) => {
-    const backBtn = e.target.closest('#btn-back-overview');
-    if (backBtn) {
-      resetSelection();
+  // Delegasi panel samping (Insight & Compare)
+  els.sidePanel.addEventListener('click', (e) => {
+    if (e.target.closest('#btn-back-indonesia')) {
+      resetToFullMap();
+      return;
+    }
+    if (e.target.closest('#btn-compare-from-insight')) {
+      enterCompareMode(state.zoomedKawasan, null);
+      return;
+    }
+    if (e.target.closest('#btn-compare-back-explore')) {
+      state.mode = 'explore';
+      resetToFullMap();
+      return;
+    }
+    if (e.target.closest('#btn-try-another-pair')) {
+      state.compareB = null;
+      state.compareSelectTarget = 'B';
+      renderComparePanel();
+      updateUIState();
+      state.mapContext?.resetZoom();
       return;
     }
 
-    const showAllBtn = e.target.closest('#btn-show-all-opponents');
-    if (showAllBtn && state.selectedKawasan) {
-      selectKawasan(state.selectedKawasan);
-      return;
-    }
-
-    const pairBtn = e.target.closest('[data-pair-higher]');
+    const pairBtn = e.target.closest('[data-compare-pair], [data-quick-pair]');
     if (pairBtn) {
-      const higher = pairBtn.getAttribute('data-pair-higher');
-      const lower = pairBtn.getAttribute('data-pair-lower');
-      if (state.mode !== 'kawasan') setMode('kawasan');
-      selectKawasan(higher, { focusedOpponent: lower });
+      const raw = pairBtn.getAttribute('data-compare-pair') || pairBtn.getAttribute('data-quick-pair');
+      const [a, b] = raw.split('::');
+      enterCompareMode(a, b);
       return;
     }
 
-    const regionBtn = e.target.closest('[data-select-kawasan]');
-    if (regionBtn) {
-      const targetKawasan = regionBtn.getAttribute('data-select-kawasan');
-      selectKawasan(targetKawasan);
-    }
-  });
-
-  els.detailPanel.addEventListener('pointerover', (e) => {
-    if (state.mode !== 'kawasan' || state.isTouchPointer) return;
-    const regionBtn = e.target.closest('[data-select-kawasan]');
-    if (!regionBtn) return;
-    const targetKawasan = regionBtn.getAttribute('data-select-kawasan');
-    if (state.hoveredKawasan !== targetKawasan) {
-      state.hoveredKawasan = targetKawasan;
-      updateMapVisuals();
-    }
-  });
-
-  els.detailPanel.addEventListener('pointerleave', () => {
-    if (state.hoveredKawasan) {
-      state.hoveredKawasan = null;
-      updateMapVisuals();
-    }
-  });
-
-  // Modal Metodologi
-  els.btnMethodology.addEventListener('click', () => {
-    if (typeof els.methodologyDialog.showModal === 'function') {
-      els.methodologyDialog.showModal();
-    } else {
-      els.methodologyDialog.setAttribute('open', '');
-    }
-  });
-
-  const closeModal = () => {
-    if (typeof els.methodologyDialog.close === 'function') {
-      els.methodologyDialog.close();
-    } else {
-      els.methodologyDialog.removeAttribute('open');
-    }
-  };
-
-  els.btnCloseModal.addEventListener('click', closeModal);
-  els.btnCloseModalFooter.addEventListener('click', closeModal);
-  els.methodologyDialog.addEventListener('click', (e) => {
-    if (e.target === els.methodologyDialog) {
-      closeModal();
-    }
-  });
-
-  // Tombol Escape membatalkan pilihan kawasan aktif (jika modal tidak terbuka)
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      if (els.methodologyDialog.open) return;
-      if (state.selectedKawasan || state.selectedProvince) {
-        resetSelection();
+    const provBtn = e.target.closest('[data-prov-name]');
+    if (provBtn && state.zoomedKawasan) {
+      const pName = provBtn.getAttribute('data-prov-name');
+      state.syncedProvince = state.syncedProvince === pName ? null : pName;
+      for (const item of els.sidePanel.querySelectorAll('.prov-bar-item')) {
+        item.classList.toggle('is-synced', item.getAttribute('data-prov-name') === state.syncedProvince);
       }
+      updateMapVisuals();
     }
   });
+
+  els.sidePanel.addEventListener('change', (e) => {
+    if (e.target.id === 'select-compare-a') {
+      const val = e.target.value || null;
+      state.compareA = val;
+      if (state.compareB === val) state.compareB = null;
+      state.compareSelectTarget = val && !state.compareB ? 'B' : 'A';
+      renderComparePanel();
+      updateUIState();
+      if (state.compareA && state.compareB) state.mapContext?.zoomToPair(state.compareA, state.compareB);
+    } else if (e.target.id === 'select-compare-b') {
+      const val = e.target.value || null;
+      state.compareB = val;
+      if (state.compareA === val) state.compareA = null;
+      renderComparePanel();
+      updateUIState();
+      if (state.compareA && state.compareB) state.mapContext?.zoomToPair(state.compareA, state.compareB);
+    }
+  });
+
+  // Hover sinkron antara daftar bar provinsi di panel dan SVG saat sedang zoom
+  els.sidePanel.addEventListener('pointerover', (e) => {
+    if (state.isTouchPointer || state.mode !== 'explore' || !state.zoomedKawasan) return;
+    const provBtn = e.target.closest('[data-prov-name]');
+    if (!provBtn) return;
+    const pName = provBtn.getAttribute('data-prov-name');
+    if (state.syncedProvince !== pName) {
+      state.syncedProvince = pName;
+      updateMapVisuals();
+    }
+  });
+
+  els.sidePanel.addEventListener('pointerleave', () => {
+    if (state.mode === 'explore' && state.zoomedKawasan && state.syncedProvince) {
+      state.syncedProvince = null;
+      updateMapVisuals();
+    }
+  });
+
+  // Dapur Statistik Modal 4-Tab Stepper
+  els.kitchenTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.step-tab');
+    if (!tab) return;
+    state.kitchenStep = Number(tab.getAttribute('data-step'));
+    renderKitchenStep();
+  });
+
+  els.btnStepPrev.addEventListener('click', () => {
+    if (state.kitchenStep > 0) {
+      state.kitchenStep -= 1;
+      renderKitchenStep();
+    }
+  });
+
+  els.btnStepNext.addEventListener('click', () => {
+    if (state.kitchenStep < 3) {
+      state.kitchenStep += 1;
+      renderKitchenStep();
+    } else {
+      closeDialog(els.kitchenDialog);
+    }
+  });
+
+  els.kitchenBody.addEventListener('click', (e) => {
+    const spotBtn = e.target.closest('[data-spotlight-pair]');
+    if (!spotBtn) return;
+    const [a, b] = spotBtn.getAttribute('data-spotlight-pair').split('::');
+    closeDialog(els.kitchenDialog);
+    enterCompareMode(a, b);
+  });
+
+  els.btnCloseKitchen.addEventListener('click', () => closeDialog(els.kitchenDialog));
+  els.kitchenDialog.addEventListener('click', (e) => {
+    if (e.target === els.kitchenDialog) closeDialog(els.kitchenDialog);
+  });
+
+  // Modal Catatan Proyek
+  els.btnProjectNote.addEventListener('click', () => {
+    if (typeof els.noteDialog.showModal === 'function') els.noteDialog.showModal();
+    else els.noteDialog.setAttribute('open', '');
+  });
+  els.btnCloseNote.addEventListener('click', () => closeDialog(els.noteDialog));
+  els.btnCloseNoteFooter.addEventListener('click', () => closeDialog(els.noteDialog));
+  els.noteDialog.addEventListener('click', (e) => {
+    if (e.target === els.noteDialog) closeDialog(els.noteDialog);
+  });
+
+  // Escape membatalkan zoom / mode compare / menutup popover
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (els.kitchenDialog.open || els.noteDialog.open) return;
+    if (!els.meanPopover.hidden) {
+      toggleMeanPopover(false);
+      return;
+    }
+    if (state.zoomedKawasan || (state.mode === 'compare' && (state.compareA || state.compareB))) {
+      resetToFullMap();
+    }
+  });
+}
+
+function handleComparePick(kawasanName) {
+  if (!state.compareA || state.compareSelectTarget === 'A') {
+    if (state.compareB === kawasanName) state.compareB = null;
+    state.compareA = kawasanName;
+    state.compareSelectTarget = 'B';
+  } else if (state.compareA === kawasanName) {
+    state.compareA = null;
+    state.compareSelectTarget = 'A';
+  } else {
+    state.compareB = kawasanName;
+    state.compareSelectTarget = 'A';
+  }
+
+  renderComparePanel();
+  updateUIState();
+
+  if (state.compareA && state.compareB) {
+    state.mapContext?.zoomToPair(state.compareA, state.compareB);
+  } else {
+    state.mapContext?.resetZoom();
+  }
 }
 
 async function init() {
@@ -952,37 +1250,27 @@ async function init() {
     state.data = data;
     state.audit = computeDataAudit(data);
 
-    // Urutkan 6 kawasan berdasarkan peringkat 1-6
     state.kawasanRanked = Object.entries(data.kawasan)
       .map(([name, val]) => ({ name, ...val }))
       .sort((a, b) => a.peringkat - b.peringkat);
 
-    // Indeks cepat untuk lookup 38 provinsi
     for (const region of state.kawasanRanked) {
       for (const prov of region.provinsi) {
-        state.provinceLookup.set(prov.Provinsi, {
-          ...prov,
-          kawasan: region.name,
-        });
+        state.provinceLookup.set(prov.Provinsi, { ...prov, kawasan: region.name });
       }
     }
 
-    renderHeaderAndKpis();
-    renderMethodologyModal();
-    renderLegend();
-    renderDetailPanel();
+    renderHeaderAndQuickBar();
 
-    // Rakit peta SVG Indonesia
-    const kawasanOrder = state.kawasanRanked.map((r) => r.name);
-    state.mapContext = mountIndonesiaMap(els.mapHost, mapHtmlText, { kawasanOrder });
+    state.mapContext = mountIndonesiaMap(els.mapHost, mapHtmlText, data.kawasan);
     els.mapLoading.hidden = true;
 
-    updateMapVisuals();
+    updateUIState();
     bindEvents();
   } catch (err) {
     console.error(err);
     els.mapLoading.hidden = true;
-    showError(err.message || 'Terjadi kesalahan saat inisialisasi aplikasi.');
+    showError(err.message || 'Terjadi kesalahan saat memuat aplikasi.');
   }
 }
 
