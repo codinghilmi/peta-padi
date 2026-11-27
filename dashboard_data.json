@@ -1,0 +1,425 @@
+{
+  "meta": {
+    "tahun": 2024,
+    "sumber": "Badan Pusat Statistik (BPS) RI",
+    "satuan": "kuintal/hektar (GKG)"
+  },
+  "nasional": {
+    "n_provinsi": 38,
+    "mean_provinsi": 45.22,
+    "median_provinsi": 45.77,
+    "produktivitas_tertimbang_bps": 52.9,
+    "metode_utama": "One-Way ANOVA (Tukey HSD)",
+    "uji_robustness": "Kruskal-Wallis (Dunn-Holm)",
+    "levene": {
+      "F": 0.7333,
+      "p_value": 0.6039
+    },
+    "anova": {
+      "F": 5.3096,
+      "p_value": 0.001158,
+      "eta_sq": 0.4534
+    },
+    "kruskal_wallis": {
+      "H": 19.2671,
+      "p_value": 0.001714,
+      "epsilon_sq": 0.5207
+    }
+  },
+  "kawasan": {
+    "Jawa": {
+      "peringkat": 1,
+      "statistik": {
+        "n": 6,
+        "mean": 52.97,
+        "sd": 5.52,
+        "median": 54.52,
+        "iqr": 9.31,
+        "min": 46.29,
+        "max": 58.47,
+        "cv_persen": 10.42
+      },
+      "shapiro_wilk": {
+        "W": 0.8367,
+        "p_value": 0.1223,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [
+        {
+          "lawan": "Kalimantan",
+          "selisih_ku_ha": 16.64,
+          "arah": "lebih tinggi",
+          "p_adj": 0.0034
+        },
+        {
+          "lawan": "Maluku & Papua",
+          "selisih_ku_ha": 13.66,
+          "arah": "lebih tinggi",
+          "p_adj": 0.0082
+        }
+      ],
+      "provinsi": [
+        {
+          "Provinsi": "JAWA BARAT",
+          "Produktivitas": 58.47,
+          "Luas_Panen": 1475362.09,
+          "Produksi": 8626879.91
+        },
+        {
+          "Provinsi": "JAWA TIMUR",
+          "Produktivitas": 57.33,
+          "Luas_Panen": 1616985.05,
+          "Produksi": 9270435.29
+        },
+        {
+          "Provinsi": "JAWA TENGAH",
+          "Produktivitas": 57.19,
+          "Luas_Panen": 1554777.14,
+          "Produksi": 8891297.05
+        },
+        {
+          "Provinsi": "BANTEN",
+          "Produktivitas": 51.84,
+          "Luas_Panen": 299090.79,
+          "Produksi": 1550623.46
+        },
+        {
+          "Provinsi": "DI YOGYAKARTA",
+          "Produktivitas": 46.7,
+          "Luas_Panen": 96976.13,
+          "Produksi": 452831.77
+        },
+        {
+          "Provinsi": "DKI JAKARTA",
+          "Produktivitas": 46.29,
+          "Luas_Panen": 498.31,
+          "Produksi": 2306.54
+        }
+      ]
+    },
+    "Bali & Nusra": {
+      "peringkat": 2,
+      "statistik": {
+        "n": 3,
+        "mean": 51.59,
+        "sd": 9.64,
+        "median": 51.59,
+        "iqr": 9.63,
+        "min": 41.95,
+        "max": 61.22,
+        "cv_persen": 18.68
+      },
+      "shapiro_wilk": {
+        "W": 1.0,
+        "p_value": 0.9994,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [
+        {
+          "lawan": "Kalimantan",
+          "selisih_ku_ha": 15.25,
+          "arah": "lebih tinggi",
+          "p_adj": 0.0419
+        }
+      ],
+      "provinsi": [
+        {
+          "Provinsi": "BALI",
+          "Produktivitas": 61.22,
+          "Luas_Panen": 103803.93,
+          "Produksi": 635473.35
+        },
+        {
+          "Provinsi": "NUSA TENGGARA BARAT",
+          "Produktivitas": 51.59,
+          "Luas_Panen": 281717.84,
+          "Produksi": 1453408.37
+        },
+        {
+          "Provinsi": "NUSA TENGGARA TIMUR",
+          "Produktivitas": 41.95,
+          "Luas_Panen": 168727.24,
+          "Produksi": 707792.54
+        }
+      ]
+    },
+    "Sulawesi": {
+      "peringkat": 3,
+      "statistik": {
+        "n": 6,
+        "mean": 47.37,
+        "sd": 3.48,
+        "median": 48.11,
+        "iqr": 5.7,
+        "min": 42.76,
+        "max": 50.65,
+        "cv_persen": 7.34
+      },
+      "shapiro_wilk": {
+        "W": 0.8546,
+        "p_value": 0.1713,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [],
+      "provinsi": [
+        {
+          "Provinsi": "SULAWESI SELATAN",
+          "Produktivitas": 50.65,
+          "Luas_Panen": 951308.6,
+          "Produksi": 4818429.39
+        },
+        {
+          "Provinsi": "SULAWESI BARAT",
+          "Produktivitas": 50.47,
+          "Luas_Panen": 63181.59,
+          "Produksi": 318876.59
+        },
+        {
+          "Provinsi": "GORONTALO",
+          "Produktivitas": 50.02,
+          "Luas_Panen": 46952.15,
+          "Produksi": 234862.88
+        },
+        {
+          "Provinsi": "SULAWESI UTARA",
+          "Produktivitas": 46.2,
+          "Luas_Panen": 59121.96,
+          "Produksi": 273134.94
+        },
+        {
+          "Provinsi": "SULAWESI TENGAH",
+          "Produktivitas": 44.14,
+          "Luas_Panen": 172606.22,
+          "Produksi": 761936.39
+        },
+        {
+          "Provinsi": "SULAWESI TENGGARA",
+          "Produktivitas": 42.76,
+          "Luas_Panen": 129999.61,
+          "Produksi": 555836.08
+        }
+      ]
+    },
+    "Sumatera": {
+      "peringkat": 4,
+      "statistik": {
+        "n": 10,
+        "mean": 46.53,
+        "sd": 8.76,
+        "median": 47.43,
+        "iqr": 9.22,
+        "min": 26.92,
+        "max": 55.83,
+        "cv_persen": 18.83
+      },
+      "shapiro_wilk": {
+        "W": 0.8959,
+        "p_value": 0.1975,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [],
+      "provinsi": [
+        {
+          "Provinsi": "SUMATERA SELATAN",
+          "Produktivitas": 55.83,
+          "Luas_Panen": 521092.21,
+          "Produksi": 2909411.67
+        },
+        {
+          "Provinsi": "ACEH",
+          "Produktivitas": 55.11,
+          "Luas_Panen": 301196.35,
+          "Produksi": 1659966.28
+        },
+        {
+          "Provinsi": "SUMATERA UTARA",
+          "Produktivitas": 52.56,
+          "Luas_Panen": 419463.48,
+          "Produksi": 2204875.51
+        },
+        {
+          "Provinsi": "LAMPUNG",
+          "Produktivitas": 52.5,
+          "Luas_Panen": 531715.12,
+          "Produksi": 2791347.53
+        },
+        {
+          "Provinsi": "BENGKULU",
+          "Produktivitas": 48.92,
+          "Luas_Panen": 55775.09,
+          "Produksi": 272848.55
+        },
+        {
+          "Provinsi": "SUMATERA BARAT",
+          "Produktivitas": 45.94,
+          "Luas_Panen": 295278.98,
+          "Produksi": 1356467.93
+        },
+        {
+          "Provinsi": "JAMBI",
+          "Produktivitas": 45.6,
+          "Luas_Panen": 61625.68,
+          "Produksi": 281022.05
+        },
+        {
+          "Provinsi": "KEP. BANGKA BELITUNG",
+          "Produktivitas": 42.57,
+          "Luas_Panen": 18202.56,
+          "Produksi": 77489.79
+        },
+        {
+          "Provinsi": "RIAU",
+          "Produktivitas": 39.36,
+          "Luas_Panen": 56421.96,
+          "Produksi": 222055.71
+        },
+        {
+          "Provinsi": "KEP. RIAU",
+          "Produktivitas": 26.92,
+          "Luas_Panen": 113.33,
+          "Produksi": 305.09
+        }
+      ]
+    },
+    "Maluku & Papua": {
+      "peringkat": 5,
+      "statistik": {
+        "n": 8,
+        "mean": 39.31,
+        "sd": 6.29,
+        "median": 41.38,
+        "iqr": 6.45,
+        "min": 27.17,
+        "max": 46.17,
+        "cv_persen": 16.01
+      },
+      "shapiro_wilk": {
+        "W": 0.9024,
+        "p_value": 0.3039,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [
+        {
+          "lawan": "Jawa",
+          "selisih_ku_ha": 13.66,
+          "arah": "lebih rendah",
+          "p_adj": 0.0082
+        }
+      ],
+      "provinsi": [
+        {
+          "Provinsi": "PAPUA SELATAN",
+          "Produktivitas": 46.17,
+          "Luas_Panen": 47168.57,
+          "Produksi": 217789.62
+        },
+        {
+          "Provinsi": "PAPUA PEGUNUNGAN",
+          "Produktivitas": 43.87,
+          "Luas_Panen": 9.66,
+          "Produksi": 42.38
+        },
+        {
+          "Provinsi": "PAPUA",
+          "Produktivitas": 43.14,
+          "Luas_Panen": 1068.57,
+          "Produksi": 4609.95
+        },
+        {
+          "Provinsi": "PAPUA TENGAH",
+          "Produktivitas": 42.28,
+          "Luas_Panen": 1436.12,
+          "Produksi": 6072.38
+        },
+        {
+          "Provinsi": "PAPUA BARAT",
+          "Produktivitas": 40.48,
+          "Luas_Panen": 5121.13,
+          "Produksi": 20729.15
+        },
+        {
+          "Provinsi": "MALUKU",
+          "Produktivitas": 38.05,
+          "Luas_Panen": 23947.35,
+          "Produksi": 91125.35
+        },
+        {
+          "Provinsi": "MALUKU UTARA",
+          "Produktivitas": 33.34,
+          "Luas_Panen": 9366.71,
+          "Produksi": 31232.95
+        },
+        {
+          "Provinsi": "PAPUA BARAT DAYA",
+          "Produktivitas": 27.17,
+          "Luas_Panen": 363.87,
+          "Produksi": 988.64
+        }
+      ]
+    },
+    "Kalimantan": {
+      "peringkat": 6,
+      "statistik": {
+        "n": 5,
+        "mean": 36.33,
+        "sd": 4.51,
+        "median": 36.32,
+        "iqr": 6.62,
+        "min": 30.94,
+        "max": 41.83,
+        "cv_persen": 12.4
+      },
+      "shapiro_wilk": {
+        "W": 0.9612,
+        "p_value": 0.8166,
+        "normal": true
+      },
+      "beda_signifikan_tukey": [
+        {
+          "lawan": "Jawa",
+          "selisih_ku_ha": 16.64,
+          "arah": "lebih rendah",
+          "p_adj": 0.0034
+        },
+        {
+          "lawan": "Bali & Nusra",
+          "selisih_ku_ha": 15.25,
+          "arah": "lebih rendah",
+          "p_adj": 0.0419
+        }
+      ],
+      "provinsi": [
+        {
+          "Provinsi": "KALIMANTAN SELATAN",
+          "Produktivitas": 41.83,
+          "Luas_Panen": 246112.42,
+          "Produksi": 1029567.93
+        },
+        {
+          "Provinsi": "KALIMANTAN TIMUR",
+          "Produktivitas": 39.6,
+          "Luas_Panen": 63041.76,
+          "Produksi": 249643.19
+        },
+        {
+          "Provinsi": "KALIMANTAN UTARA",
+          "Produktivitas": 36.32,
+          "Luas_Panen": 8282.06,
+          "Produksi": 30079.77
+        },
+        {
+          "Provinsi": "KALIMANTAN TENGAH",
+          "Produktivitas": 32.98,
+          "Luas_Panen": 111016.13,
+          "Produksi": 366146.82
+        },
+        {
+          "Provinsi": "KALIMANTAN BARAT",
+          "Produktivitas": 30.94,
+          "Luas_Panen": 247207.72,
+          "Produksi": 764784.15
+        }
+      ]
+    }
+  }
+}
